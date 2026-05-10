@@ -1,0 +1,1187 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Building2, 
+  Users, 
+  Wallet, 
+  Receipt, 
+  Plus, 
+  Trash2, 
+  Edit2,
+  Calendar as CalendarIcon, 
+  ChevronRight, 
+  ChevronLeft,
+  Download,
+  Printer,
+  Search,
+  TrendingDown,
+  TrendingUp,
+  CreditCard,
+  Sun,
+  Moon,
+  PieChart as PieChartIcon,
+  BarChart3,
+  DollarSign,
+  Activity,
+  Bell,
+  BellRing,
+  Settings
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import type { 
+  AppState, 
+  AttendanceStatus, 
+  Employee, 
+  Expense, 
+  FinanceData 
+} from './types';
+
+// New Component Imports
+import { Dashboard } from './components/Dashboard';
+import { AttendanceTable } from './components/AttendanceTable';
+import { InvoiceForm } from './components/InvoiceForm';
+import { EmployeeManager } from './components/EmployeeManager';
+import { ExpenseManager } from './components/ExpenseManager';
+import { EmployeeSearch } from './components/EmployeeSearch';
+import { MonthSummary } from './components/MonthSummary';
+
+// Utility Imports
+import { calculateEmployeeSalaryStats, calculateEmployeeSalary } from './lib/salaryUtils';
+
+const INITIAL_STATE: AppState = {
+  month: new Date().getMonth(),
+  year: new Date().getFullYear(),
+  hotels: [{ id: 'h1', name: 'Mövenpick' }],
+  currentHotelId: 'h1',
+  employees: [
+    { id: '1', name: 'وليد', salary: 11000, hotelId: 'h1', month: new Date().getMonth(), year: new Date().getFullYear() },
+    { id: '2', name: 'محمد', salary: 9500, hotelId: 'h1', month: new Date().getMonth(), year: new Date().getFullYear() },
+    { id: '3', name: 'سارة', salary: 10000, hotelId: 'h1', month: new Date().getMonth(), year: new Date().getFullYear() }
+  ],
+  attendance: {},
+  finance: {},
+  advances: [],
+  expenses: [],
+  theme: 'light',
+  notifications: {
+    enabled: false,
+    onStatusChange: true,
+    onLowProfit: true,
+    onOverdueFinancials: false,
+    profitThreshold: 20
+  }
+};
+
+const MONTHS = [
+  'يناير / Jan', 'فبراير / Feb', 'مارس / Mar', 'أبريل / Apr', 'مايو / May', 'يونيو / Jun', 
+  'يوليو / Jul', 'أغسطس / Aug', 'سبتمبر / Sep', 'أكتوبر / Oct', 'نوفمبر / Nov', 'ديسمبر / Dec'
+];
+
+export default function App() {
+  const [state, setState] = useState<AppState>(() => {
+    const saved = localStorage.getItem('evently_pro_v1');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        ...INITIAL_STATE,
+        ...parsed,
+        // Ensure nested objects exist even if missing in old data
+        attendance: parsed.attendance || {},
+        finance: parsed.finance || {},
+        advances: Array.isArray(parsed.advances) ? parsed.advances : [],
+        hotels: parsed.hotels || INITIAL_STATE.hotels,
+        employees: parsed.employees || INITIAL_STATE.employees,
+        expenses: parsed.expenses || INITIAL_STATE.expenses,
+        theme: parsed.theme || 'light',
+        notifications: {
+          ...INITIAL_STATE.notifications,
+          ...(parsed.notifications || {})
+        },
+      };
+    }
+    return INITIAL_STATE;
+  });
+
+  const [lastSaved, setLastSaved] = useState<string>(new Date().toLocaleTimeString());
+  const [showSaveIndicator, setShowSaveIndicator] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMonth, setSearchMonth] = useState(state.month);
+  const [searchYear, setSearchYear] = useState(state.year);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{ 
+    isOpen: boolean; 
+    title: string; 
+    message: string; 
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
+  const showConfirmation = (title: string, message: string, onConfirm: () => void) => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: () => {
+        onConfirm();
+        setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
+  // Notification Helpers
+  const toggleNotifications = async () => {
+    const nextEnabled = !state.notifications?.enabled;
+    
+    setState(prev => ({
+      ...prev,
+      notifications: { ...prev.notifications!, enabled: nextEnabled }
+    }));
+
+    if (nextEnabled && 'Notification' in window && Notification.permission !== 'granted') {
+      try {
+        await Notification.requestPermission();
+      } catch (e) {
+        console.error("Notification permission request failed", e);
+      }
+    }
+
+    if (nextEnabled && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification("Notifications Enabled / تم تفعيل التنبيهات", {
+        body: "You will now receive alerts for important events."
+      });
+    }
+  };
+
+  const sendNotification = (title: string, body: string) => {
+    if (state.notifications?.enabled && Notification.permission === 'granted') {
+      new Notification(title, { body });
+    }
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      localStorage.setItem('evently_pro_v1', JSON.stringify(state));
+      setLastSaved(new Date().toLocaleTimeString());
+      setShowSaveIndicator(true);
+      setTimeout(() => setShowSaveIndicator(false), 2000);
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [state]);
+
+  useEffect(() => {
+    // Immediate save on critical changes or just theme updates
+    if (state.theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [state]);
+
+  const toggleTheme = () => {
+    setState(prev => ({ ...prev, theme: prev.theme === 'light' ? 'dark' : 'light' }));
+  };
+
+  const daysInMonth = new Date(state.year, state.month + 1, 0).getDate();
+  
+  const currentFinance = useMemo(() => {
+    const key = `${state.year}-${state.month}-${state.currentHotelId}`;
+    return state.finance[key] || {
+      contractValue: 0,
+      invoiceNumber: '',
+      taxRate: 0,
+      status: 'لم تصدر'
+    };
+  }, [state.finance, state.year, state.month, state.currentHotelId]);
+
+  const currentExpenses = useMemo(() => {
+    return state.expenses.filter(ex => 
+      ex.month === state.month && 
+      ex.year === state.year && 
+      ex.hotelId === state.currentHotelId
+    );
+  }, [state.expenses, state.month, state.year, state.currentHotelId]);
+
+  const currentEmployees = useMemo(() => {
+    return state.employees.filter(e => 
+      e.hotelId === state.currentHotelId && 
+      e.month === state.month && 
+      e.year === state.year
+    );
+  }, [state.employees, state.currentHotelId, state.month, state.year]);
+
+  const totals = useMemo(() => {
+    const totalSalaries = currentEmployees.reduce((sum, emp) => sum + calculateEmployeeSalary(emp, state), 0);
+    const totalExpenses = currentExpenses.reduce((sum, ex) => sum + ex.amount, 0);
+    const taxAmount = currentFinance.contractValue * (currentFinance.taxRate / 100);
+    const totalCosts = totalSalaries + totalExpenses + taxAmount;
+    const netProfit = currentFinance.contractValue - totalCosts;
+
+    return {
+      salaries: totalSalaries,
+      expenses: totalExpenses,
+      tax: taxAmount,
+      costs: totalCosts,
+      profit: netProfit
+    };
+  }, [currentEmployees, currentExpenses, currentFinance, state.attendance, daysInMonth, state.advances]);
+
+  // Monitor Profit Margin
+  useEffect(() => {
+    if (!state.notifications?.enabled || !state.notifications.onLowProfit) return;
+    
+    const revenue = totals.tax + totals.costs + totals.profit;
+    if (revenue > 0) {
+      const margin = (totals.profit / revenue) * 100;
+      if (margin < state.notifications.profitThreshold) {
+        const key = `notified_low_profit_${state.year}_${state.month}_${state.currentHotelId}`;
+        if (!sessionStorage.getItem(key)) {
+          sendNotification(
+            "Low Profit Margin / هامش ربح منخفض",
+            `Alert: Profit margin for ${MONTHS[state.month]} dropped below ${state.notifications.profitThreshold}% (Current: ${Math.round(margin)}%)`
+          );
+          sessionStorage.setItem(key, 'true');
+        }
+      }
+    }
+  }, [totals.profit, totals.costs, state.notifications, state.month, state.year, state.currentHotelId]);
+
+  // Monitor Overdue Financials
+  useEffect(() => {
+    if (!state.notifications?.enabled || !state.notifications.onOverdueFinancials) return;
+
+    // Check months before current
+    const currentMonthNum = state.year * 12 + state.month;
+    
+    Object.entries(state.finance).forEach(([key, value]) => {
+      const data = value as FinanceData;
+      const [year, month] = key.split('-').map(Number);
+      const dataMonthNum = year * 12 + month;
+
+      if (dataMonthNum < currentMonthNum && data.status !== 'تم التحصيل') {
+        const sessionKey = `notified_overdue_${key}`;
+        if (!sessionStorage.getItem(sessionKey)) {
+          const hotelName = state.hotels.find(h => h.id === key.split('-')[2])?.name || 'Hotel';
+          sendNotification(
+            "Overdue Payment / مستحقات متأخرة",
+            `Warning: Month ${MONTHS[month]} ${year} for ${hotelName} is still ${data.status}.`
+          );
+          sessionStorage.setItem(sessionKey, 'true');
+        }
+      }
+    });
+
+  }, [state.finance, state.notifications, state.month, state.year]);
+
+  const updateFinance = (updates: Partial<FinanceData>) => {
+    const key = `${state.year}-${state.month}-${state.currentHotelId}`;
+    const oldStatus = currentFinance.status;
+    
+    setState(prev => ({
+      ...prev,
+      finance: {
+        ...prev.finance,
+        [key]: { ...currentFinance, ...updates }
+      }
+    }));
+
+    if (updates.status && updates.status !== oldStatus && state.notifications?.onStatusChange) {
+      sendNotification(
+        "Invoice Status Updated / تحديث حالة الفاتورة",
+        `Invoice status changed to "${updates.status}" for ${MONTHS[state.month]} ${state.year}`
+      );
+    }
+  };
+
+  const cycleAttendance = (empId: string, day: number) => {
+    const key = `${state.year}-${state.month}-${empId}-${day}`;
+    const statuses: AttendanceStatus[] = ['', 'D', 'A', 'O'];
+    const currentStatus = state.attendance[key] || '';
+    const nextStatus = statuses[(statuses.indexOf(currentStatus) + 1) % 4];
+
+    setState(prev => ({
+      ...prev,
+      attendance: {
+        ...prev.attendance,
+        [key]: nextStatus
+      }
+    }));
+  };
+
+  const addExpense = (description: string, amount: number) => {
+    if (!description || !amount) return;
+    const newExpense: Expense = {
+      id: Math.random().toString(36).substr(2, 9),
+      description,
+      amount,
+      month: state.month,
+      year: state.year,
+      hotelId: state.currentHotelId
+    };
+    setState(prev => ({
+      ...prev,
+      expenses: [...prev.expenses, newExpense]
+    }));
+  };
+
+  const handlePrint = () => {
+    window.focus();
+    setTimeout(() => {
+      window.print();
+    }, 200);
+  };
+
+  const removeExpense = (id: string) => {
+    const expense = state.expenses.find(ex => ex.id === id);
+    showConfirmation(
+      'حذف مصروف / Delete Expense',
+      `هل أنت متأكد من حذف المصفوف "${expense?.description}" بقيمة ${expense?.amount}؟ / Are you sure you want to delete this expense?`,
+      () => {
+        setState(prev => ({
+          ...prev,
+          expenses: prev.expenses.filter(ex => ex.id !== id)
+        }));
+      }
+    );
+  };
+
+  const exportData = () => {
+    const dataStr = JSON.stringify(state, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = `evently_pro_backup_${state.year}_${state.month + 1}.json`;
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+  };
+
+  const importData = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const parsed = JSON.parse(content);
+        
+        // Basic validation
+        if (!parsed.hotels || !parsed.employees) {
+          throw new Error('الملف غير صالح / Invalid backup file');
+        }
+
+        showConfirmation(
+          'استعادة البيانات / Restore Data',
+          'هل أنت متأكد من استيراد هذه النسخة؟ سيتم استبدال البيانات الحالية بالكامل. / Are you sure? This will replace all current data.',
+          () => {
+            setState(parsed);
+          }
+        );
+      } catch (err) {
+        alert('خطأ في قراءة الملف / Error reading file: ' + (err as Error).message);
+      }
+    };
+    reader.readAsText(file);
+    // Reset input
+    event.target.value = '';
+  };
+
+  const manualSave = () => {
+    localStorage.setItem('evently_pro_v1', JSON.stringify(state));
+    setLastSaved(new Date().toLocaleTimeString());
+    setShowSaveIndicator(true);
+    setTimeout(() => setShowSaveIndicator(false), 2000);
+  };
+
+  const [showHotelModal, setShowHotelModal] = useState(false);
+  const [newHotelName, setNewHotelName] = useState('');
+  const [editingHotelId, setEditingHotelId] = useState<string | null>(null);
+
+  const addHotel = () => {
+    if (!newHotelName.trim()) return;
+    
+    if (editingHotelId) {
+      setState(prev => ({
+        ...prev,
+        hotels: prev.hotels.map(h => h.id === editingHotelId ? { ...h, name: newHotelName.trim() } : h)
+      }));
+    } else {
+      const newId = Math.random().toString(36).substr(2, 9);
+      const newHotel = { id: newId, name: newHotelName.trim() };
+      
+      setState(prev => ({
+        ...prev,
+        hotels: [...prev.hotels, newHotel],
+        currentHotelId: newId
+      }));
+    }
+    setNewHotelName('');
+    setEditingHotelId(null);
+    setShowHotelModal(false);
+  };
+
+  const removeHotel = (id: string) => {
+    if (state.hotels.length <= 1) return;
+    
+    const hotelName = state.hotels.find(h => h.id === id)?.name;
+    showConfirmation(
+      'حذف فندق / Delete Hotel',
+      `هل أنت متأكد من حذف فندق "${hotelName}"؟ سيتم حذف جميع الموظفين والمصروفات المرتبطة به. / Are you sure you want to delete "${hotelName}"? All associated employees and expenses will be removed.`,
+      () => {
+        setState(prev => ({
+          ...prev,
+          hotels: prev.hotels.filter(h => h.id !== id),
+          currentHotelId: prev.hotels[0].id,
+          employees: prev.employees.filter(e => e.hotelId !== id),
+          expenses: prev.expenses.filter(ex => ex.hotelId !== id)
+        }));
+      }
+    );
+  };
+
+  const addEmployee = (name: string, salary: number, position: string = '') => {
+    if (!name || !salary) return;
+    const now = new Date().toISOString().split('T')[0];
+    const newEmp: Employee = {
+      id: Math.random().toString(36).substr(2, 9),
+      name,
+      position,
+      salary,
+      salaryHistory: [{
+        amount: salary,
+        month: state.month,
+        year: state.year,
+        date: now
+      }],
+      hotelId: state.currentHotelId,
+      month: state.month,
+      year: state.year
+    };
+    setState(prev => ({
+      ...prev,
+      employees: [...prev.employees, newEmp]
+    }));
+  };
+
+  const copyEmployeesFromPreviousMonth = () => {
+    const prevMonth = state.month === 0 ? 11 : state.month - 1;
+    const prevYear = state.month === 0 ? state.year - 1 : state.year;
+    
+    const prevEmployees = state.employees.filter(e => 
+      e.hotelId === state.currentHotelId && 
+      e.month === prevMonth && 
+      e.year === prevYear
+    );
+
+    if (prevEmployees.length === 0) {
+      alert('لا يوجد موظفين في الشهر السابق لنسخهم');
+      return;
+    }
+
+    const performCopy = () => {
+      const copiedEmployees = prevEmployees.map(e => ({
+        ...e,
+        id: Math.random().toString(36).substr(2, 9),
+        month: state.month,
+        year: state.year
+      }));
+
+      setState(prev => ({
+        ...prev,
+        employees: [
+          ...prev.employees.filter(e => !(e.hotelId === state.currentHotelId && e.month === state.month && e.year === state.year)),
+          ...copiedEmployees
+        ]
+      }));
+    };
+
+    if (currentEmployees.length > 0) {
+      showConfirmation(
+        'نسخ بيانات الموظفين / Copy Employees',
+        'هذا الشهر يحتوي بالفعل على موظفين. هل تريد مسحهم واستبدالهم بموظفي الشهر السابق؟ / This month already has employees. Do you want to clear them and replace them with last month\'s data?',
+        performCopy
+      );
+    } else {
+      performCopy();
+    }
+  };
+
+  const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
+  const [activeAdvanceEmpId, setActiveAdvanceEmpId] = useState<string | null>(null);
+
+  const addAdvance = (empId: string, amount: number, reason: string) => {
+    if (!amount) return;
+    const newAdvance = {
+      id: Math.random().toString(36).substr(2, 9),
+      empId,
+      amount,
+      reason: reason || 'سلفة',
+      month: state.month,
+      year: state.year
+    };
+    setState(prev => ({
+      ...prev,
+      advances: [...prev.advances, newAdvance]
+    }));
+  };
+
+  const removeAdvance = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      advances: prev.advances.filter(a => a.id !== id)
+    }));
+  };
+  const updateEmployee = (id: string, updates: Partial<Employee>) => {
+    setState(prev => ({
+      ...prev,
+      employees: prev.employees.map(emp => {
+        if (emp.id === id) {
+          const updatedEmp = { ...emp, ...updates };
+          
+          // Track salary history if salary changed
+          if (updates.salary !== undefined && updates.salary !== emp.salary) {
+            const history = emp.salaryHistory || [];
+            const exists = history.find(h => h.month === state.month && h.year === state.year);
+            const now = new Date().toISOString().split('T')[0];
+            
+            if (exists) {
+              updatedEmp.salaryHistory = history.map(h => 
+                (h.month === state.month && h.year === state.year) 
+                  ? { ...h, amount: updates.salary!, date: now } 
+                  : h
+              );
+            } else {
+              updatedEmp.salaryHistory = [
+                ...history, 
+                { amount: updates.salary, month: state.month, year: state.year, date: now }
+              ].sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month));
+            }
+          }
+          
+          return updatedEmp;
+        }
+        return emp;
+      })
+    }));
+  };
+
+  const removeEmployee = (id: string) => {
+    const empName = state.employees.find(e => e.id === id)?.name;
+    showConfirmation(
+      'حذف موظف / Delete Employee',
+      `هل أنت متأكد من حذف الموظف "${empName}"؟ / Are you sure you want to delete employee "${empName}"?`,
+      () => {
+        setState(prev => ({
+          ...prev,
+          employees: prev.employees.filter(e => e.id !== id)
+        }));
+      }
+    );
+  };
+
+  return (
+    <div className="min-h-screen pb-12" dir="rtl">
+      {/* Print-only Header */}
+      <div className="hidden print:block w-full mb-8 border-b-2 border-brand-primary pb-4">
+        <div className="flex justify-between items-end">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 bg-black rounded-xl flex items-center justify-center">
+              <CalendarIcon size={24} className="text-brand-accent" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black text-brand-primary leading-tight text-center">EVENTLY COMPANY " CEO : Walid "</h1>
+              <p className="text-sm font-bold text-brand-neutral">تقرير الحضور والماليات الشهري</p>
+            </div>
+          </div>
+          <div className="text-left">
+            <h2 className="text-xl font-black text-brand-primary">{state.hotels.find(h => h.id === state.currentHotelId)?.name}</h2>
+            <p className="text-sm font-bold text-brand-neutral">{MONTHS[state.month]} {state.year}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Print-Only Header */}
+      <div className="hidden print-only mb-8 text-center border-b-2 border-brand-primary pb-4">
+        <h1 className="text-3xl font-black text-brand-primary">EVENTLY ENTERTAINMENT</h1>
+        <p className="text-lg font-bold text-brand-neutral">تقرير الحضور والماليات - {MONTHS[state.month]} {state.year}</p>
+        <div className="mt-2 text-sm text-brand-neutral">الفندق: {state.hotels.find(h => h.id === state.currentHotelId)?.name}</div>
+      </div>
+
+      <header className="bg-brand-card border-b border-brand-border sticky top-0 z-50 backdrop-blur-md bg-brand-card/90 no-print">
+        <div className="max-w-full mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="font-black text-lg leading-tight text-brand-primary">EVENTLY COMPANY " CEO : Walid "</h1>
+              <p className="text-[10px] uppercase tracking-wider text-brand-neutral font-bold">نظام الحضور والماليات / Financial & Attendance</p>
+            </div>
+          </div>
+
+            <div className="flex items-center gap-4">
+              {showSaveIndicator && (
+                <motion.div 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="hidden md:flex items-center gap-1.5 text-[10px] font-black text-brand-gold bg-brand-gold/10 px-2 py-1 rounded-full border border-brand-gold/20"
+                >
+                  <div className="w-1.5 h-1.5 bg-brand-gold rounded-full animate-pulse" />
+                  تم الحفظ تلقائياً / Auto-saved
+                </motion.div>
+              )}
+              {!showSaveIndicator && (
+                <div className="hidden lg:block text-[10px] font-bold text-brand-neutral">
+                  آخر حفظ: {lastSaved}
+                </div>
+              )}
+              <button 
+                onClick={toggleTheme}
+              className="p-2 bg-brand-bg rounded-xl text-brand-primary border border-brand-border hover:border-brand-accent transition-all"
+            >
+              {state.theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
+            <div className="flex gap-1 sm:gap-2">
+              <button 
+                onClick={handlePrint}
+                className="p-2 bg-red-600 rounded-xl text-white border border-red-700 hover:bg-red-700 transition-all group shadow-lg shadow-red-600/20 active:scale-95 flex items-center gap-2 px-3 sm:px-4"
+                title="طباعة التقرير / Print Report"
+              >
+                <Printer size={20} className="group-hover:scale-110 transition-transform" />
+                <span className="hidden sm:inline text-xs font-black">طباعة / Print</span>
+              </button>
+              <button 
+                onClick={() => setShowSearchPanel(true)}
+                className="p-2 bg-red-600 rounded-xl text-white border border-red-700 hover:bg-red-700 transition-all group shadow-lg shadow-red-600/20 active:scale-95 flex items-center gap-2 px-3 sm:px-4"
+                title="استعلام الموظفين / Employee Search"
+              >
+                <Search size={20} className="group-hover:scale-110 transition-transform" />
+                <span className="hidden sm:inline text-xs font-black">بحث / Search</span>
+              </button>
+              <button 
+                onClick={() => setShowNotificationSettings(true)}
+                className={`p-2 bg-brand-card border border-brand-border rounded-xl transition-all hover:scale-105 active:scale-95 ${state.notifications?.enabled ? 'text-brand-gold' : 'text-brand-neutral'}`}
+                title="إعدادات التنبيهات / Notification Settings"
+              >
+                {state.notifications?.enabled ? <BellRing size={20} /> : <Bell size={20} />}
+              </button>
+              <div className="hidden lg:flex gap-2">
+                <button 
+                  onClick={manualSave}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-brand-card border border-brand-border rounded-lg hover:bg-brand-bg transition-all text-brand-primary"
+                  title="حفظ البيانات / Save Data"
+                >
+                  <Receipt size={14} className="text-brand-gold" />
+                  حفظ / Save
+                </button>
+                <label className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-brand-card border border-brand-border rounded-lg hover:bg-brand-bg transition-all text-brand-primary cursor-pointer">
+                  <Download size={14} className="rotate-180" />
+                  استيراد / Import
+                  <input type="file" accept=".json" onChange={importData} className="hidden" />
+                </label>
+                <button onClick={exportData} className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-brand-card border border-brand-border rounded-lg hover:bg-brand-bg transition-all text-brand-primary">
+                  <Download size={14} />
+                  تصدير / Export
+                </button>
+              </div>
+
+              {/* Mobile/Tablet Icons */}
+              <div className="flex lg:hidden gap-1">
+                <button 
+                  onClick={manualSave}
+                  className="p-2 bg-brand-card border border-brand-border rounded-lg text-brand-primary hover:bg-brand-bg"
+                  title="حفظ"
+                >
+                  <Receipt size={16} className="text-brand-gold" />
+                </button>
+                <label className="p-2 bg-brand-card border border-brand-border rounded-lg text-brand-primary cursor-pointer hover:bg-brand-bg">
+                  <Download size={16} className="rotate-180" />
+                  <input type="file" accept=".json" onChange={importData} className="hidden" />
+                </label>
+                <button onClick={exportData} className="p-2 bg-brand-card border border-brand-border rounded-lg text-brand-primary hover:bg-brand-bg">
+                  <Download size={16} />
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </header>
+      
+      <main className="w-full max-w-[1600px] mx-auto px-4 mt-8 space-y-8">
+        <div className="bg-zinc-950 p-4 rounded-[2.5rem] border border-zinc-800 no-print shadow-2xl overflow-hidden relative">
+          <div className="absolute inset-0 bg-gradient-to-br from-orange-600/5 to-transparent pointer-events-none" />
+          <div className="flex flex-wrap gap-3 items-center justify-center relative z-10">
+            {state.hotels.map(hotel => (
+              <div key={hotel.id} className="relative group">
+                <button
+                  onClick={() => setState(p => ({ ...p, currentHotelId: hotel.id }))}
+                  className={`px-5 py-2.5 rounded-xl text-sm font-black whitespace-nowrap transition-all flex items-center gap-2 ${
+                    state.currentHotelId === hotel.id 
+                    ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/40 -translate-y-1 border-b-[4px] border-orange-800 active:translate-y-0 active:border-b-0' 
+                    : 'bg-zinc-900/50 text-zinc-400 border border-zinc-800 hover:border-orange-500/30 hover:text-orange-500 shadow-sm hover:shadow-md hover:-translate-y-0.5'
+                  }`}
+                >
+                  <Building2 size={16} className={state.currentHotelId === hotel.id ? 'animate-pulse' : ''} />
+                  <span>{hotel.name}</span>
+                </button>
+                <div className="absolute -top-2 -left-2 hidden group-hover:flex gap-1 z-10">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setEditingHotelId(hotel.id); setNewHotelName(hotel.name); setShowHotelModal(true); }}
+                    className="w-6 h-6 bg-blue-600/90 text-white rounded-full items-center justify-center shadow-lg hover:bg-blue-600 transition-colors"
+                  >
+                    <Edit2 size={10} />
+                  </button>
+                  {state.hotels.length > 1 && (
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); removeHotel(hotel.id); }}
+                      className="w-6 h-6 bg-red-600/90 text-white rounded-full items-center justify-center shadow-lg hover:bg-red-600 transition-colors"
+                    >
+                      <Trash2 size={10} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            <button 
+              onClick={() => { setEditingHotelId(null); setNewHotelName(''); setShowHotelModal(true); }}
+              className="w-10 h-10 bg-zinc-900/50 rounded-xl text-zinc-500 hover:bg-orange-600 hover:text-white transition-all flex items-center justify-center border border-zinc-800 hover:border-orange-600 shadow-sm hover:shadow-lg active:scale-95 group"
+              title="إضافة فندق جديد"
+            >
+              <Plus size={20} className="group-hover:rotate-90 transition-transform" />
+            </button>
+          </div>
+        </div>
+
+        <Dashboard totals={totals} currentFinance={currentFinance} />
+
+        <section className="no-print">
+          <div className="bg-brand-card p-6 rounded-3xl border border-brand-border shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-brand-primary/5 text-brand-primary rounded-xl flex items-center justify-center shadow-sm">
+                <CalendarIcon size={20} className="text-brand-accent" />
+              </div>
+              <h3 className="text-lg font-black text-brand-primary">اختيار شهر العمل / Work Month Selection</h3>
+            </div>
+            <div className="flex items-center gap-4 bg-brand-bg px-4 py-2 rounded-2xl border border-brand-border group transition-all hover:border-brand-accent/50">
+                <button 
+                  onClick={() => setState(p => ({ ...p, year: p.year - 1 }))}
+                  className="p-1.5 hover:bg-brand-card rounded-lg transition-all text-brand-primary active:scale-90"
+                  title="السنة السابقة"
+                >
+                  <ChevronRight size={18} />
+                </button>
+                <div className="flex flex-col items-center min-w-20">
+                  <span className="text-[10px] font-black text-brand-neutral uppercase tracking-tighter">السنة / Year</span>
+                  <span className="font-black text-lg text-brand-primary leading-none">{state.year}</span>
+                </div>
+                <button 
+                  onClick={() => setState(p => ({ ...p, year: p.year + 1 }))}
+                  className="p-1.5 hover:bg-brand-card rounded-lg transition-all text-brand-primary active:scale-90"
+                  title="السنة التالية"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {MONTHS.map((month, index) => (
+              <button
+                key={month}
+                onClick={() => setState(p => ({ ...p, month: index }))}
+                className={`py-4 px-4 rounded-xl font-black text-sm transition-all border ${
+                  state.month === index
+                    ? 'bg-brand-accent text-brand-primary border-brand-accent shadow-lg shadow-brand-accent/20 scale-[1.02]'
+                    : 'bg-brand-bg text-brand-primary border-brand-border hover:border-brand-accent/30 hover:bg-brand-card'
+                }`}
+              >
+                {month}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+
+      <AnimatePresence>
+        {activeAdvanceEmpId && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 no-print">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setActiveAdvanceEmpId(null)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-brand-card w-full max-w-md rounded-2xl shadow-2xl p-6 border border-brand-border"
+            >
+              <h3 className="text-xl font-black mb-6 text-brand-primary">
+                سلف ومسحوبات: {currentEmployees.find(e => e.id === activeAdvanceEmpId)?.name}
+              </h3>
+              
+              <div className="space-y-4 max-h-[300px] overflow-y-auto mb-6 pr-1 no-scrollbar">
+                {state.advances
+                  .filter(a => a.empId === activeAdvanceEmpId && a.month === state.month && a.year === state.year)
+                  .map(adv => (
+                    <div key={adv.id} className="flex items-center justify-between p-3 bg-brand-bg rounded-xl border border-brand-border">
+                      <div>
+                        <p className="text-sm font-bold text-brand-primary">{adv.reason}</p>
+                        <p className="text-xs text-brand-gold font-black">{adv.amount.toLocaleString()} EGP</p>
+                      </div>
+                      <button 
+                        onClick={() => removeAdvance(adv.id)}
+                        className="p-1.5 text-[#c0392b] hover:bg-[#c0392b]/10 rounded-lg transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+              </div>
+
+              <form 
+                onSubmit={e => {
+                  e.preventDefault();
+                  const form = e.target as HTMLFormElement;
+                  const amt = parseFloat((form.elements.namedItem('amt') as HTMLInputElement).value);
+                  const reason = (form.elements.namedItem('reason') as HTMLInputElement).value;
+                  addAdvance(activeAdvanceEmpId!, amt, reason);
+                  form.reset();
+                }}
+                className="space-y-3"
+              >
+                <div className="flex gap-2">
+                  <input name="amt" type="number" placeholder="المبلغ" className="flex-1 px-4 py-2 bg-brand-bg border border-brand-border rounded-xl text-sm font-bold text-brand-primary" required />
+                  <input name="reason" type="text" placeholder="السبب (اختياري)" className="flex-[2] px-4 py-2 bg-brand-bg border border-brand-border rounded-xl text-sm text-brand-primary" />
+                  <button type="submit" className="px-4 bg-brand-primary text-brand-accent rounded-xl border border-brand-accent/20">
+                    <Plus size={18} />
+                  </button>
+                </div>
+              </form>
+
+              <div className="mt-6 flex justify-end">
+                <button 
+                  onClick={() => setActiveAdvanceEmpId(null)}
+                  className="px-6 py-2 bg-brand-bg text-brand-neutral rounded-xl font-bold hover:bg-brand-border transition-all"
+                >
+                  إغلاق
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showHotelModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 no-print">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowHotelModal(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm" 
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-brand-card w-full max-w-md rounded-2xl shadow-2xl p-6 border border-brand-border"
+            >
+              <h3 className="text-xl font-black mb-6 text-brand-primary">
+                {editingHotelId ? 'تعديل اسم الفندق' : 'إضافة فندق جديد'}
+              </h3>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-brand-neutral">اسم الفندق</label>
+                  <input 
+                    autoFocus
+                    type="text" 
+                    value={newHotelName}
+                    onChange={e => setNewHotelName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addHotel()}
+                    placeholder="مثال: موفنبيك، شيراتون..."
+                    className="w-full px-4 py-3 bg-brand-bg border border-brand-border rounded-xl font-bold text-brand-primary"
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={addHotel}
+                    className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-black shadow-lg shadow-orange-600/20 hover:bg-orange-700 transition-all active:scale-95"
+                  >
+                    {editingHotelId ? 'حفظ التعديلات' : 'إضافة الفندق'}
+                  </button>
+                  <button 
+                    onClick={() => { setShowHotelModal(false); setEditingHotelId(null); setNewHotelName(''); }}
+                    className="px-6 py-3 bg-brand-bg text-brand-neutral rounded-xl font-bold hover:bg-brand-border transition-all border border-brand-border"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+        <AttendanceTable 
+          currentEmployees={currentEmployees}
+          daysInMonth={daysInMonth}
+          state={state}
+          cycleAttendance={cycleAttendance}
+          setActiveAdvanceEmpId={setActiveAdvanceEmpId}
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-7xl mx-auto w-full pb-12">
+          <EmployeeManager 
+            currentEmployees={currentEmployees}
+            editingEmployeeId={editingEmployeeId}
+            setEditingEmployeeId={setEditingEmployeeId}
+            updateEmployee={updateEmployee}
+            removeEmployee={removeEmployee}
+            copyEmployeesFromPreviousMonth={copyEmployeesFromPreviousMonth}
+            addEmployee={addEmployee}
+            months={MONTHS}
+          />
+
+          <ExpenseManager 
+            currentExpenses={currentExpenses}
+            addExpense={addExpense}
+            removeExpense={removeExpense}
+          />
+        </div>
+      </main>
+
+      <AnimatePresence>
+        {showSearchPanel && (
+          <>
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[150] no-print"
+              onClick={() => setShowSearchPanel(false)}
+            />
+            <motion.div 
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="fixed top-0 right-0 h-full w-full max-w-2xl bg-brand-card shadow-2xl z-[151] border-l border-brand-border overflow-y-auto no-scrollbar no-print"
+              dir="rtl"
+            >
+              <div className="sticky top-0 bg-brand-card/90 backdrop-blur-md z-10 flex items-center justify-between p-6 border-b border-brand-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-brand-primary/5 text-brand-primary rounded-xl flex items-center justify-center">
+                    <Search size={22} className="text-brand-accent" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-brand-primary">استعلام الموظفين / Employee Search</h3>
+                    <p className="text-xs font-bold text-brand-neutral">البحث في سجلات الموظفين والرواتب</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowSearchPanel(false)}
+                  className="p-2 hover:bg-brand-bg rounded-xl transition-all text-brand-neutral hover:text-brand-primary group"
+                >
+                  <Plus className="rotate-45 transition-transform group-hover:scale-110" size={28} />
+                </button>
+              </div>
+              
+              <div className="p-6">
+                <EmployeeSearch 
+                  state={state}
+                  searchQuery={searchQuery}
+                  setSearchQuery={setSearchQuery}
+                  searchMonth={searchMonth}
+                  setSearchMonth={setSearchMonth}
+                  searchYear={searchYear}
+                  setSearchYear={setSearchYear}
+                  months={MONTHS}
+                />
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <section className="max-w-[1600px] mx-auto px-4 mb-20 no-print">
+        <InvoiceForm currentFinance={currentFinance} updateFinance={updateFinance} />
+      </section>
+
+      <MonthSummary 
+        currentFinance={currentFinance}
+        updateFinance={updateFinance}
+      />
+
+      <AnimatePresence>
+        {showNotificationSettings && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowNotificationSettings(false)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-brand-card w-full max-w-md rounded-3xl border border-brand-border shadow-2xl p-6 space-y-6"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-brand-border pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-brand-gold/10 text-brand-gold rounded-xl flex items-center justify-center">
+                    <BellRing size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-brand-primary">إعدادات التنبيهات / Notifications</h3>
+                    <p className="text-[10px] font-bold text-brand-neutral">تحكم في التنبيهات الهامة للنظام</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowNotificationSettings(false)}
+                  className="p-2 hover:bg-brand-bg rounded-full transition-colors text-brand-neutral"
+                >
+                  <Plus className="rotate-45" size={24} />
+                </button>
+              </div>
+
+              <div className="space-y-5">
+                <div className="flex items-center justify-between p-4 bg-brand-bg rounded-2xl border border-brand-border">
+                  <div>
+                    <h4 className="text-sm font-black text-brand-primary">تفعيل التنبيهات / Enable Notifications</h4>
+                    <p className="text-[10px] font-bold text-brand-neutral">تلقي تنبيهات على سطح المكتب</p>
+                  </div>
+                  <button 
+                    onClick={toggleNotifications}
+                    className={`w-12 h-6 rounded-full p-1 transition-colors ${state.notifications?.enabled ? 'bg-brand-gold' : 'bg-brand-neutral/20'}`}
+                  >
+                    <motion.div 
+                      className="w-4 h-4 bg-white rounded-full shadow-sm"
+                      animate={{ x: state.notifications?.enabled ? 24 : 0 }}
+                    />
+                  </button>
+                </div>
+
+                <div className={`space-y-4 transition-all ${!state.notifications?.enabled ? 'opacity-40 pointer-events-none' : ''}`}>
+                  <div className="flex items-center justify-between p-3 border-b border-brand-border/50">
+                    <div className="flex items-center gap-3">
+                      <Receipt size={18} className="text-brand-primary" />
+                      <span className="text-sm font-bold text-brand-primary">تغيير حالة الفاتورة / Invoice Status Change</span>
+                    </div>
+                    <input 
+                      type="checkbox" 
+                      checked={state.notifications?.onStatusChange}
+                      onChange={(e) => setState(p => ({ ...p, notifications: { ...p.notifications!, onStatusChange: e.target.checked } }))}
+                      className="w-4 h-4 accent-brand-gold"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3 border-b border-brand-border/50">
+                    <div className="flex items-center gap-3">
+                      <DollarSign size={18} className="text-brand-primary" />
+                      <span className="text-sm font-bold text-brand-primary">متابعة المستحقات المتاخرة / Overdue Financials</span>
+                    </div>
+                    <input 
+                      type="checkbox" 
+                      checked={state.notifications?.onOverdueFinancials}
+                      onChange={(e) => setState(p => ({ ...p, notifications: { ...p.notifications!, onOverdueFinancials: e.target.checked } }))}
+                      className="w-4 h-4 accent-brand-gold"
+                    />
+                  </div>
+
+                  <div className="p-3 bg-brand-primary/5 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <TrendingDown size={18} className="text-[#c0392b]" />
+                        <span className="text-sm font-bold text-brand-primary">تنبيه هامش الربح / Low Profit Warning</span>
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        checked={state.notifications?.onLowProfit}
+                        onChange={(e) => setState(p => ({ ...p, notifications: { ...p.notifications!, onLowProfit: e.target.checked } }))}
+                        className="w-4 h-4 accent-brand-gold"
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                       <div className="flex justify-between text-[10px] font-black text-brand-neutral">
+                         <span>Threshold: {state.notifications?.profitThreshold}%</span>
+                         <span>تحذير عند انخفاض الربح عن</span>
+                       </div>
+                       <input 
+                        type="range"
+                        min="5"
+                        max="50"
+                        step="5"
+                        value={state.notifications?.profitThreshold}
+                        onChange={(e) => setState(p => ({ ...p, notifications: { ...p.notifications!, profitThreshold: parseInt(e.target.value) } }))}
+                        className="w-full accent-brand-gold h-1.5 rounded-lg appearance-none bg-brand-border cursor-pointer"
+                       />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button 
+                  onClick={() => setShowNotificationSettings(false)}
+                  className="w-full py-3 bg-brand-primary text-brand-accent font-black rounded-xl hover:shadow-lg transition-all"
+                >
+                  حفظ الإعدادات / Save Settings
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+        {confirmModal.isOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 no-print"
+            onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-brand-card w-full max-w-md rounded-3xl border border-brand-border shadow-2xl p-8 text-center"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-16 h-16 bg-red-500/10 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Trash2 size={32} />
+              </div>
+              <h3 className="text-xl font-black text-brand-primary mb-3">{confirmModal.title}</h3>
+              <p className="text-sm font-bold text-brand-neutral leading-relaxed mb-8">
+                {confirmModal.message}
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                  className="flex-1 py-3 px-4 rounded-xl border border-brand-border text-brand-primary font-black text-sm hover:bg-brand-bg transition-colors"
+                >
+                  إلغاء / Cancel
+                </button>
+                <button 
+                  onClick={confirmModal.onConfirm}
+                  className="flex-1 py-3 px-4 rounded-xl bg-red-600 text-white font-black text-sm hover:bg-red-700 shadow-lg shadow-red-600/20 transition-all active:scale-95"
+                >
+                  تأكيد الحذف / Confirm
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
