@@ -26,7 +26,9 @@
       "description": "Hotel definition",
       "type": "object",
       "properties": {
-        "name": { "type": "string" }
+        "name": { "type": "string" },
+        "order": { "type": "number" },
+        "color": { "type": "string" }
       },
       "required": ["name"]
     },

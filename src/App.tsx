@@ -724,9 +724,14 @@ export function AppContent() {
     setTimeout(() => setShowSaveIndicator(false), 2000);
   };
 
+  const [newHotelColor, setNewHotelColor] = useState('#ea580c');
   const [showHotelModal, setShowHotelModal] = useState(false);
   const [newHotelName, setNewHotelName] = useState('');
   const [editingHotelId, setEditingHotelId] = useState<string | null>(null);
+
+  const sortedHotels = useMemo(() => {
+    return [...state.hotels].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }, [state.hotels]);
 
   const addHotel = async () => {
     if (!newHotelName.trim() || !user) return;
@@ -734,20 +739,57 @@ export function AppContent() {
     try {
       if (editingHotelId) {
         const hotelRef = doc(db, 'users', user.uid, 'hotels', editingHotelId);
-        await updateDoc(hotelRef, { name: newHotelName.trim() });
+        await updateDoc(hotelRef, { 
+          name: newHotelName.trim(),
+          color: newHotelColor
+        });
       } else {
         const newId = Math.random().toString(36).substr(2, 9);
+        const maxOrder = state.hotels.reduce((max, h) => Math.max(max, h.order ?? 0), 0);
         const hotelRef = doc(db, 'users', user.uid, 'hotels', newId);
-        await setDoc(hotelRef, { name: newHotelName.trim() });
+        await setDoc(hotelRef, { 
+          name: newHotelName.trim(),
+          color: newHotelColor,
+          order: maxOrder + 1
+        });
         
         // Update current hotel in profile
         await updateDoc(doc(db, 'users', user.uid), { currentHotelId: newId });
       }
       setNewHotelName('');
+      setNewHotelColor('#ea580c');
       setEditingHotelId(null);
       setShowHotelModal(false);
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/hotels`);
+    }
+  };
+
+  const reorderHotel = async (id: string, direction: 'up' | 'down') => {
+    if (!user) return;
+    const index = sortedHotels.findIndex(h => h.id === id);
+    if (index === -1) return;
+    
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= sortedHotels.length) return;
+    
+    const h1 = sortedHotels[index];
+    const h2 = sortedHotels[targetIndex];
+    
+    let order1 = h1.order !== undefined ? h1.order : index;
+    let order2 = h2.order !== undefined ? h2.order : targetIndex;
+
+    if (order1 === order2) {
+      order2 = order1 + 1;
+    }
+
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'users', user.uid, 'hotels', h1.id), { order: order2 });
+      batch.update(doc(db, 'users', user.uid, 'hotels', h2.id), { order: order1 });
+      await batch.commit();
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/hotels/reorder`);
     }
   };
 
@@ -1152,41 +1194,72 @@ export function AppContent() {
       <main className="w-full max-w-[1600px] mx-auto px-4 mt-8 space-y-8">
         <div className="bg-zinc-950 p-4 rounded-[2.5rem] border border-zinc-800 no-print shadow-2xl overflow-hidden relative">
           <div className="absolute inset-0 bg-gradient-to-br from-orange-600/5 to-transparent pointer-events-none" />
-          <div className="flex flex-wrap gap-3 items-center justify-center relative z-10">
-            {state.hotels.map(hotel => (
+          <div className="flex flex-wrap gap-4 items-center justify-center relative z-10">
+            {sortedHotels.map(hotel => (
               <div key={hotel.id} className="relative group">
                 <button
                   onClick={() => setState(p => ({ ...p, currentHotelId: hotel.id }))}
-                  className={`px-5 py-2.5 rounded-xl text-sm font-black whitespace-nowrap transition-all flex items-center gap-2 ${
+                  style={{ 
+                    backgroundColor: hotel.color || '#ea580c',
+                    boxShadow: state.currentHotelId === hotel.id 
+                      ? `0 10px 25px -4px ${(hotel.color || '#ea580c')}60` 
+                      : 'none'
+                  }}
+                  className={`px-5 py-2.5 rounded-xl text-sm font-black whitespace-nowrap transition-all flex items-center gap-2 border-2 ${
                     state.currentHotelId === hotel.id 
-                    ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/40 -translate-y-1 border-b-[4px] border-orange-800 active:translate-y-0 active:border-b-0' 
-                    : 'bg-zinc-900/50 text-zinc-400 border border-zinc-800 hover:border-orange-500/30 hover:text-orange-500 shadow-sm hover:shadow-md hover:-translate-y-0.5'
+                    ? 'text-white border-white -translate-y-1 scale-105 active:scale-100 active:translate-y-0 shadow-lg' 
+                    : 'text-white/90 border-transparent hover:border-white/30 hover:-translate-y-0.5 opacity-80 hover:opacity-100'
                   }`}
                 >
                   <Building2 size={16} className={state.currentHotelId === hotel.id ? 'animate-pulse' : ''} />
                   <span>{hotel.name}</span>
                 </button>
-                <div className="absolute -top-2 -left-2 hidden group-hover:flex gap-1 z-10">
+                <div className="absolute -top-3 -left-2 hidden group-hover:flex gap-1 z-20">
                   <button 
-                    onClick={(e) => { e.stopPropagation(); setEditingHotelId(hotel.id); setNewHotelName(hotel.name); setShowHotelModal(true); }}
-                    className="w-6 h-6 bg-blue-600/90 text-white rounded-full items-center justify-center shadow-lg hover:bg-blue-600 transition-colors"
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setEditingHotelId(hotel.id); 
+                      setNewHotelName(hotel.name); 
+                      setNewHotelColor(hotel.color || '#ea580c');
+                      setShowHotelModal(true); 
+                    }}
+                    className="w-7 h-7 bg-blue-600 text-white rounded-full flex items-center justify-center shadow-xl hover:bg-blue-500 scale-100 hover:scale-110 active:scale-90 transition-all border-2 border-zinc-950"
                   >
-                    <Edit2 size={10} />
+                    <Edit2 size={12} />
                   </button>
+                  <div className="flex flex-col gap-1">
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); reorderHotel(hotel.id, 'up'); }}
+                      className="w-6 h-6 bg-zinc-800 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-zinc-700 transition-colors border border-zinc-700"
+                    >
+                      <ChevronRight size={14} className="-rotate-90" />
+                    </button>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); reorderHotel(hotel.id, 'down'); }}
+                      className="w-6 h-6 bg-zinc-800 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-zinc-700 transition-colors border border-zinc-700"
+                    >
+                      <ChevronRight size={14} className="rotate-90" />
+                    </button>
+                  </div>
                   {state.hotels.length > 1 && (
                     <button 
                       onClick={(e) => { e.stopPropagation(); removeHotel(hotel.id); }}
-                      className="w-6 h-6 bg-red-600/90 text-white rounded-full items-center justify-center shadow-lg hover:bg-red-600 transition-colors"
+                      className="w-7 h-7 bg-red-600 text-white rounded-full flex items-center justify-center shadow-xl hover:bg-red-500 scale-100 hover:scale-110 active:scale-90 transition-all border-2 border-zinc-950"
                     >
-                      <Trash2 size={10} />
+                      <Trash2 size={12} />
                     </button>
                   )}
                 </div>
               </div>
             ))}
             <button 
-              onClick={() => { setEditingHotelId(null); setNewHotelName(''); setShowHotelModal(true); }}
-              className="w-10 h-10 bg-zinc-900/50 rounded-xl text-zinc-500 hover:bg-orange-600 hover:text-white transition-all flex items-center justify-center border border-zinc-800 hover:border-orange-600 shadow-sm hover:shadow-lg active:scale-95 group"
+              onClick={() => { 
+                setEditingHotelId(null); 
+                setNewHotelName(''); 
+                setNewHotelColor('#ea580c');
+                setShowHotelModal(true); 
+              }}
+              className="w-10 h-10 bg-zinc-900/50 rounded-xl text-zinc-500 hover:bg-white hover:text-black transition-all flex items-center justify-center border border-zinc-800 hover:border-white shadow-sm hover:shadow-lg active:scale-95 group"
               title="إضافة فندق جديد"
             >
               <Plus size={20} className="group-hover:rotate-90 transition-transform" />
@@ -1353,11 +1426,11 @@ export function AppContent() {
               className="relative bg-brand-card w-full max-w-md rounded-2xl shadow-2xl p-6 border border-brand-border"
             >
               <h3 className="text-xl font-black mb-6 text-brand-primary">
-                {editingHotelId ? 'تعديل اسم الفندق' : 'إضافة فندق جديد'}
+                {editingHotelId ? 'تعديل فندق' : 'إضافة فندق جديد'}
               </h3>
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-brand-neutral">اسم الفندق</label>
+                  <label className="text-xs font-bold text-brand-neutral">اسم الفندق / Hotel Name</label>
                   <input 
                     autoFocus
                     type="text" 
@@ -1365,18 +1438,51 @@ export function AppContent() {
                     onChange={e => setNewHotelName(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && addHotel()}
                     placeholder="مثال: موفنبيك، شيراتون..."
-                    className="w-full px-4 py-3 bg-brand-bg border border-brand-border rounded-xl font-bold text-brand-primary"
+                    className="w-full px-4 py-3 bg-brand-bg border border-brand-border rounded-xl font-bold text-brand-primary focus:border-brand-accent transition-colors"
                   />
                 </div>
-                <div className="flex gap-3 pt-2">
+                
+                <div className="space-y-3">
+                  <label className="text-xs font-bold text-brand-neutral">لون الزر / Button Color</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      '#ea580c', // Orange
+                      '#2563eb', // Blue
+                      '#059669', // Emerald
+                      '#7c3aed', // Violet
+                      '#db2777', // Pink
+                      '#dc2626', // Red
+                      '#d97706', // Amber
+                      '#4b5563', // Gray
+                      '#000000', // Black
+                    ].map(color => (
+                      <button
+                        key={color}
+                        onClick={() => setNewHotelColor(color)}
+                        className={`w-8 h-8 rounded-full border-2 transition-all ${newHotelColor === color ? 'border-white scale-125 shadow-lg' : 'border-transparent scale-100 hover:scale-110'}`}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                    <div className="relative w-8 h-8 rounded-full border-2 border-brand-border overflow-hidden group">
+                      <input 
+                        type="color" 
+                        value={newHotelColor}
+                        onChange={e => setNewHotelColor(e.target.value)}
+                        className="absolute inset-0 w-[150%] h-[150%] -top-[25%] -left-[25%] cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-4">
                   <button 
                     onClick={addHotel}
-                    className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-black shadow-lg shadow-orange-600/20 hover:bg-orange-700 transition-all active:scale-95"
+                    className="flex-1 py-3 bg-brand-primary text-brand-accent rounded-xl font-black shadow-lg shadow-brand-primary/20 hover:scale-[1.02] transition-all active:scale-95"
                   >
                     {editingHotelId ? 'حفظ التعديلات' : 'إضافة الفندق'}
                   </button>
                   <button 
-                    onClick={() => { setShowHotelModal(false); setEditingHotelId(null); setNewHotelName(''); }}
+                    onClick={() => { setShowHotelModal(false); setEditingHotelId(null); setNewHotelName(''); setNewHotelColor('#ea580c'); }}
                     className="px-6 py-3 bg-brand-bg text-brand-neutral rounded-xl font-bold hover:bg-brand-border transition-all border border-brand-border"
                   >
                     إلغاء

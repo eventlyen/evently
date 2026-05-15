@@ -3,6 +3,8 @@ export type AttendanceStatus = 'D' | 'A' | 'O' | ''; // Duty, Absent, Off
 export interface Hotel {
   id: string;
   name: string;
+  order?: number;
+  color?: string;
 }
 
 export interface SalaryHistory {

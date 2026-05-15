@@ -24,8 +24,9 @@ service cloud.firestore {
     }
 
     function isValidHotel(data) {
-      return data.keys().hasAll(['name'])
-        && data.name is string && data.name.size() > 0 && data.name.size() <= 100;
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && (!data.keys().contains('order') || data.order is number)
+        && (!data.keys().contains('color') || (data.color is string && data.color.size() <= 50));
     }
 
     function isValidEmployee(data) {
@@ -73,38 +74,23 @@ service cloud.firestore {
       allow update: if isOwner(userId) && isValidUser(incoming());
 
       match /hotels/{hotelId} {
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidHotel(incoming());
-        allow update: if isOwner(userId) && isValidHotel(incoming());
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /employees/{employeeId} {
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidEmployee(incoming());
-        allow update: if isOwner(userId) && isValidEmployee(incoming());
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /expenses/{expenseId} {
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidExpense(incoming());
-        allow update: if isOwner(userId) && isValidExpense(incoming());
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /advances/{advanceId} {
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidAdvance(incoming());
-        allow update: if isOwner(userId) && isValidAdvance(incoming());
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /attendance/{attendanceId} {
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidAttendance(incoming());
-        allow update: if isOwner(userId) && isValidAttendance(incoming());
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /finance/{financeId} {
