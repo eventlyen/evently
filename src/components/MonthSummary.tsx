@@ -38,8 +38,11 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ currentFinance, upda
                     type="number"
                     className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-lg text-sm font-bold text-center text-brand-primary outline-none focus:ring-1 focus:ring-brand-primary"
                     placeholder="0.00"
-                    value={currentFinance.manualNetSalaries || ''}
-                    onChange={(e) => updateFinance({ manualNetSalaries: parseFloat(e.target.value) || 0 })}
+                    value={currentFinance.manualNetSalaries !== undefined && currentFinance.manualNetSalaries !== null ? currentFinance.manualNetSalaries : ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateFinance({ manualNetSalaries: val === '' ? null : (parseFloat(val) || 0) });
+                    }}
                   />
                 </td>
                 <td className="p-2 border border-brand-border">
@@ -47,8 +50,11 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ currentFinance, upda
                     type="number"
                     className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-lg text-sm font-bold text-center text-brand-primary outline-none focus:ring-1 focus:ring-brand-primary"
                     placeholder="0.00"
-                    value={currentFinance.manualNetProfit || ''}
-                    onChange={(e) => updateFinance({ manualNetProfit: parseFloat(e.target.value) || 0 })}
+                    value={currentFinance.manualNetProfit !== undefined && currentFinance.manualNetProfit !== null ? currentFinance.manualNetProfit : ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateFinance({ manualNetProfit: val === '' ? null : (parseFloat(val) || 0) });
+                    }}
                   />
                 </td>
                 <td className="p-2 border border-brand-border">
@@ -56,8 +62,11 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ currentFinance, upda
                     type="number"
                     className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-lg text-sm font-bold text-center text-brand-primary outline-none focus:ring-1 focus:ring-brand-primary"
                     placeholder="0.00"
-                    value={currentFinance.manualSavedTaxes || ''}
-                    onChange={(e) => updateFinance({ manualSavedTaxes: parseFloat(e.target.value) || 0 })}
+                    value={currentFinance.manualSavedTaxes !== undefined && currentFinance.manualSavedTaxes !== null ? currentFinance.manualSavedTaxes : ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateFinance({ manualSavedTaxes: val === '' ? null : (parseFloat(val) || 0) });
+                    }}
                   />
                 </td>
                 <td className="p-2 border border-brand-border">
@@ -65,8 +74,11 @@ export const MonthSummary: React.FC<MonthSummaryProps> = ({ currentFinance, upda
                     type="number"
                     className="w-full px-3 py-2 bg-brand-bg border border-brand-border rounded-lg text-sm font-bold text-center text-brand-primary outline-none focus:ring-1 focus:ring-brand-primary"
                     placeholder="0.00"
-                    value={currentFinance.manualSourceTaxPaid || ''}
-                    onChange={(e) => updateFinance({ manualSourceTaxPaid: parseFloat(e.target.value) || 0 })}
+                    value={currentFinance.manualSourceTaxPaid !== undefined && currentFinance.manualSourceTaxPaid !== null ? currentFinance.manualSourceTaxPaid : ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateFinance({ manualSourceTaxPaid: val === '' ? null : (parseFloat(val) || 0) });
+                    }}
                   />
                 </td>
               </tr>

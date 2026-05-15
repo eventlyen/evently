@@ -21,6 +21,7 @@ export interface Employee {
   hotelId: string;
   month: number;
   year: number;
+  order?: number;
 }
 
 export interface Expense {
@@ -30,6 +31,14 @@ export interface Expense {
   month: number;
   year: number;
   hotelId: string;
+}
+
+export interface InvoiceFile {
+  id: string;
+  url: string;
+  name: string;
+  type: string;
+  createdAt: number;
 }
 
 export interface FinanceData {
@@ -44,6 +53,11 @@ export interface FinanceData {
   manualNotes?: string;
   issuedInvoiceTotal?: number;
   whtAmount?: number;
+  invoiceUrl?: string; // Keep for backward compatibility
+  invoiceFileName?: string; // Keep for backward compatibility
+  invoices?: InvoiceFile[];
+  invoiceDate?: string;
+  paymentDate?: string;
 }
 
 export interface Advance {

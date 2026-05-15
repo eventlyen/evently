@@ -1,0 +1,130 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and global settings",
+      "type": "object",
+      "properties": {
+        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "notifications": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "onStatusChange": { "type": "boolean" },
+            "onLowProfit": { "type": "boolean" },
+            "onOverdueFinancials": { "type": "boolean" },
+            "profitThreshold": { "type": "number" }
+          }
+        },
+        "currentHotelId": { "type": "string" },
+        "month": { "type": "number" },
+        "year": { "type": "number" }
+      }
+    },
+    "Hotel": {
+      "title": "Hotel",
+      "description": "Hotel definition",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Employee record",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "position": { "type": "string" },
+        "salary": { "type": "number" },
+        "hotelId": { "type": "string" },
+        "month": { "type": "number" },
+        "year": { "type": "number" },
+        "order": { "type": "number" },
+        "salaryHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "amount": { "type": "number" },
+              "month": { "type": "number" },
+              "year": { "type": "number" },
+              "date": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "Expense entry",
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "month": { "type": "number" },
+        "year": { "type": "number" },
+        "hotelId": { "type": "string" }
+      }
+    },
+    "Advance": {
+      "title": "Advance",
+      "description": "Salary advance entry",
+      "type": "object",
+      "properties": {
+        "empId": { "type": "string" },
+        "amount": { "type": "number" },
+        "reason": { "type": "string" },
+        "month": { "type": "number" },
+        "year": { "type": "number" }
+      }
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Daily attendance record",
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["", "D", "A", "O"] },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "empId": { "type": "string" },
+        "day": { "type": "number" }
+      }
+    },
+    "Finance": {
+      "title": "Finance",
+      "description": "Monthly finance data for a hotel",
+      "type": "object",
+      "properties": {
+        "contractValue": { "type": "number" },
+        "invoiceNumber": { "type": "string" },
+        "taxRate": { "type": "number" },
+        "status": { "type": "string" },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "hotelId": { "type": "string" },
+        "invoiceUrl": { "type": "string" },
+        "invoiceFileName": { "type": "string" },
+        "whtAmount": { "type": "number" },
+        "issuedInvoiceTotal": { "type": "number" },
+        "invoiceDate": { "type": "string" },
+        "paymentDate": { "type": "string" },
+        "manualNotes": { "type": "string" },
+        "manualNetSalaries": { "type": "number" },
+        "manualNetProfit": { "type": "number" },
+        "manualSavedTaxes": { "type": "number" },
+        "manualSourceTaxPaid": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User settings" },
+    "/users/{userId}/hotels/{hotelId}": { "schema": "Hotel", "description": "Hotels owned by user" },
+    "/users/{userId}/employees/{employeeId}": { "schema": "Employee", "description": "Employees managed by user" },
+    "/users/{userId}/expenses/{expenseId}": { "schema": "Expense", "description": "Expenses recorded by user" },
+    "/users/{userId}/advances/{advanceId}": { "schema": "Advance", "description": "Advances recorded by user" },
+    "/users/{userId}/attendance/{attendanceId}": { "schema": "Attendance", "description": "Attendance logs" },
+    "/users/{userId}/finance/{financeId}": { "schema": "Finance", "description": "Financial records" }
+  }
+}

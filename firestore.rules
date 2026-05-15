@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Primitives & Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // Validation Helpers
+    function isValidUser(data) {
+      return data.keys().hasAll(['theme', 'notifications', 'currentHotelId', 'month', 'year'])
+        && data.theme in ['light', 'dark']
+        && data.notifications is map
+        && data.month is number && data.month >= 0 && data.month <= 11
+        && data.year is number && data.year >= 2000 && data.year <= 2100;
+    }
+
+    function isValidHotel(data) {
+      return data.keys().hasAll(['name'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100;
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll(['name', 'salary', 'hotelId', 'month', 'year'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.salary is number && data.salary >= 0
+        && data.hotelId is string && data.hotelId.size() <= 128
+        && data.month is number && data.month >= 0 && data.month <= 11
+        && data.year is number && data.year >= 2000 && data.year <= 2100
+        && (!data.keys().contains('order') || data.order is number);
+    }
+
+    function isValidExpense(data) {
+      return data.keys().hasAll(['description', 'amount', 'month', 'year', 'hotelId'])
+        && data.description is string && data.description.size() > 0 && data.description.size() <= 255
+        && data.amount is number && data.amount >= 0
+        && data.month is number && data.month >= 0 && data.month <= 11
+        && data.year is number && data.year >= 2000 && data.year <= 2100
+        && data.hotelId is string && data.hotelId.size() <= 128;
+    }
+
+    function isValidAdvance(data) {
+      return data.keys().hasAll(['empId', 'amount', 'reason', 'month', 'year'])
+        && data.empId is string && data.empId.size() <= 128
+        && data.amount is number && data.amount >= 0
+        && data.reason is string && data.reason.size() <= 255
+        && data.month is number && data.month >= 0 && data.month <= 11
+        && data.year is number && data.year >= 2000 && data.year <= 2100;
+    }
+
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['status', 'year', 'month', 'empId', 'day'])
+        && data.status in ['', 'D', 'A', 'O']
+        && data.year is number && data.month is number && data.empId is string && data.day is number;
+    }
+
+    function isValidFinance(data) {
+      return true;
+    }
+
+    // Collection Rules
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming());
+
+      match /hotels/{hotelId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidHotel(incoming());
+        allow update: if isOwner(userId) && isValidHotel(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /employees/{employeeId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidEmployee(incoming());
+        allow update: if isOwner(userId) && isValidEmployee(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /expenses/{expenseId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidExpense(incoming());
+        allow update: if isOwner(userId) && isValidExpense(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /advances/{advanceId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidAdvance(incoming());
+        allow update: if isOwner(userId) && isValidAdvance(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /attendance/{attendanceId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidAttendance(incoming());
+        allow update: if isOwner(userId) && isValidAttendance(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /finance/{financeId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}

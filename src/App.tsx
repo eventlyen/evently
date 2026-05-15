@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Building2, 
   Users, 
@@ -24,7 +24,16 @@ import {
   Activity,
   Bell,
   BellRing,
-  Settings
+  Settings,
+  LogIn,
+  LogOut,
+  Loader2,
+  FileUp,
+  FileText,
+  Image as ImageIcon,
+  Eye,
+  FileDown,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { 
@@ -34,6 +43,23 @@ import type {
   Expense, 
   FinanceData 
 } from './types';
+
+// Firebase Imports
+import { auth, db, signInWithGoogle, logOut, storage } from './lib/firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  onSnapshot, 
+  query, 
+  where,
+  getDocs,
+  writeBatch
+} from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { FirebaseProvider, useFirebase } from './components/FirebaseProvider';
 
 // New Component Imports
 import { Dashboard } from './components/Dashboard';
@@ -76,30 +102,92 @@ const MONTHS = [
   'يوليو / Jul', 'أغسطس / Aug', 'سبتمبر / Sep', 'أكتوبر / Oct', 'نوفمبر / Nov', 'ديسمبر / Dec'
 ];
 
-export default function App() {
-  const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem('evently_pro_v1');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return {
-        ...INITIAL_STATE,
-        ...parsed,
-        // Ensure nested objects exist even if missing in old data
-        attendance: parsed.attendance || {},
-        finance: parsed.finance || {},
-        advances: Array.isArray(parsed.advances) ? parsed.advances : [],
-        hotels: parsed.hotels || INITIAL_STATE.hotels,
-        employees: parsed.employees || INITIAL_STATE.employees,
-        expenses: parsed.expenses || INITIAL_STATE.expenses,
-        theme: parsed.theme || 'light',
-        notifications: {
-          ...INITIAL_STATE.notifications,
-          ...(parsed.notifications || {})
-        },
-      };
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+function LoginScreen() {
+  const [loading, setLoading] = useState(false);
+  const handleLogin = async () => {
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
-    return INITIAL_STATE;
-  });
+  };
+
+  return (
+    <div className="min-h-screen bg-brand-bg flex items-center justify-center p-4" dir="rtl">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-md w-full bg-brand-card p-8 rounded-[2.5rem] border border-brand-border shadow-2xl text-center space-y-6"
+      >
+        <div className="w-20 h-20 bg-brand-primary text-brand-accent rounded-3xl flex items-center justify-center mx-auto shadow-xl">
+          <CalendarIcon size={40} />
+        </div>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-black text-brand-primary">Evently Entertainment System</h1>
+          <div className="space-y-1">
+            <p className="text-brand-neutral font-bold text-sm leading-relaxed">نظام مخصص لشركة ايفنتلي انترتيمنت للخدمات الترفيهية</p>
+            <p className="text-brand-neutral/60 font-black text-[10px] tracking-wider uppercase mb-2">Entertainment System For Evently Company Only</p>
+            <p className="text-red-600/80 font-bold text-[9px] leading-tight">
+              - غير مصرح بأستخدام هذا النظام الا من صاحب الشركة فقط<br/>
+              والا ستعرض نفسك الي المسائلة القانونية و حقوق الملكية الفكرية
+            </p>
+          </div>
+        </div>
+        <button 
+          onClick={handleLogin}
+          disabled={loading}
+          className="w-full py-4 bg-red-600 text-white rounded-2xl font-black shadow-lg shadow-red-600/20 hover:bg-red-700 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="animate-spin" /> : <LogIn size={20} />}
+          تسجيل الدخول باستخدام Google
+        </button>
+        <p className="text-[10px] text-brand-neutral font-medium">بالمتابعة أنت توافق على شروط الاستخدام وسياسة الخصوصية</p>
+      </motion.div>
+    </div>
+  );
+}
+
+export function AppContent() {
+  const { user } = useFirebase();
+  const [state, setState] = useState<AppState>(INITIAL_STATE);
 
   const [lastSaved, setLastSaved] = useState<string>(new Date().toLocaleTimeString());
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
@@ -134,25 +222,25 @@ export default function App() {
 
   // Notification Helpers
   const toggleNotifications = async () => {
+    if (!user) return;
     const nextEnabled = !state.notifications?.enabled;
     
-    setState(prev => ({
-      ...prev,
-      notifications: { ...prev.notifications!, enabled: nextEnabled }
-    }));
-
-    if (nextEnabled && 'Notification' in window && Notification.permission !== 'granted') {
-      try {
-        await Notification.requestPermission();
-      } catch (e) {
-        console.error("Notification permission request failed", e);
-      }
-    }
-
-    if (nextEnabled && 'Notification' in window && Notification.permission === 'granted') {
-      new Notification("Notifications Enabled / تم تفعيل التنبيهات", {
-        body: "You will now receive alerts for important events."
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        'notifications.enabled': nextEnabled
       });
+
+      if (nextEnabled && 'Notification' in window && Notification.permission !== 'granted') {
+        await Notification.requestPermission();
+      }
+
+      if (nextEnabled && 'Notification' in window && Notification.permission === 'granted') {
+        new Notification("Notifications Enabled / تم تفعيل التنبيهات", {
+          body: "You will now receive alerts for important events."
+        });
+      }
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}/notifications`);
     }
   };
 
@@ -163,39 +251,108 @@ export default function App() {
   };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      localStorage.setItem('evently_pro_v1', JSON.stringify(state));
-      setLastSaved(new Date().toLocaleTimeString());
-      setShowSaveIndicator(true);
-      setTimeout(() => setShowSaveIndicator(false), 2000);
-    }, 30000);
+    if (!user) return;
 
-    return () => clearInterval(interval);
-  }, [state]);
+    const userDocRef = doc(db, 'users', user.uid);
+    const unsubs: (() => void)[] = [];
+
+    // 1. Sync User Profile (Settings)
+    unsubs.push(onSnapshot(userDocRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setState(prev => ({
+          ...prev,
+          theme: data.theme || prev.theme,
+          notifications: data.notifications || prev.notifications,
+          currentHotelId: data.currentHotelId || prev.currentHotelId,
+          month: data.month ?? prev.month,
+          year: data.year ?? prev.year
+        }));
+      } else {
+        // Initial setup for new user
+        setDoc(userDocRef, {
+          theme: INITIAL_STATE.theme,
+          notifications: INITIAL_STATE.notifications,
+          currentHotelId: INITIAL_STATE.currentHotelId,
+          month: INITIAL_STATE.month,
+          year: INITIAL_STATE.year
+        }).catch(e => handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}`));
+      }
+    }));
+
+    // 2. Sync Collections
+    const collections = ['hotels', 'employees', 'expenses', 'advances', 'attendance', 'finance'];
+    collections.forEach(colName => {
+      const colRef = collection(db, 'users', user.uid, colName);
+      unsubs.push(onSnapshot(colRef, (snapshot) => {
+        if (colName === 'attendance' || colName === 'finance') {
+          const map: any = {};
+          snapshot.docs.forEach(d => {
+            const data = d.data();
+            if (colName === 'attendance') {
+              map[d.id] = data.status;
+            } else {
+              map[d.id] = data;
+            }
+          });
+          setState(prev => {
+            const currentMapStr = JSON.stringify(prev[colName as keyof AppState]);
+            const newMapStr = JSON.stringify(map);
+            if (currentMapStr === newMapStr) return prev;
+            return { ...prev, [colName]: map };
+          });
+        } else {
+          const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+          setState(prev => {
+            const currentItemsStr = JSON.stringify(prev[colName as keyof AppState]);
+            const newItemsStr = JSON.stringify(items);
+            if (currentItemsStr === newItemsStr) return prev;
+            return { ...prev, [colName]: items };
+          });
+        }
+      }, (e) => handleFirestoreError(e, OperationType.GET, `users/${user.uid}/${colName}`)));
+    });
+
+    return () => unsubs.forEach(unsub => unsub());
+  }, [user]);
 
   useEffect(() => {
-    // Immediate save on critical changes or just theme updates
+    // Sync month/year/hotel selection to Firestore profile
+    if (!user) return;
+    const userDocRef = doc(db, 'users', user.uid);
+    updateDoc(userDocRef, {
+      month: state.month,
+      year: state.year,
+      currentHotelId: state.currentHotelId
+    }).catch(() => {}); // Silent fail for simple navigation
+  }, [state.month, state.year, state.currentHotelId, user]);
+
+  useEffect(() => {
     if (state.theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [state]);
+  }, [state.theme]);
 
   const toggleTheme = () => {
-    setState(prev => ({ ...prev, theme: prev.theme === 'light' ? 'dark' : 'light' }));
+    if (!user) return;
+    const nextTheme = state.theme === 'light' ? 'dark' : 'light';
+    updateDoc(doc(db, 'users', user.uid), { theme: nextTheme })
+      .catch(e => handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}`));
   };
 
   const daysInMonth = new Date(state.year, state.month + 1, 0).getDate();
   
   const currentFinance = useMemo(() => {
     const key = `${state.year}-${state.month}-${state.currentHotelId}`;
-    return state.finance[key] || {
+    const defaults: FinanceData = {
       contractValue: 0,
       invoiceNumber: '',
       taxRate: 0,
       status: 'لم تصدر'
     };
+    return { ...defaults, ...(state.finance[key] || {}) };
   }, [state.finance, state.year, state.month, state.currentHotelId]);
 
   const currentExpenses = useMemo(() => {
@@ -207,28 +364,41 @@ export default function App() {
   }, [state.expenses, state.month, state.year, state.currentHotelId]);
 
   const currentEmployees = useMemo(() => {
-    return state.employees.filter(e => 
-      e.hotelId === state.currentHotelId && 
-      e.month === state.month && 
-      e.year === state.year
-    );
+    return state.employees
+      .filter(e => 
+        e.hotelId === state.currentHotelId && 
+        e.month === state.month && 
+        e.year === state.year
+      )
+      .sort((a, b) => {
+        // First sort by order
+        if ((a.order ?? 0) !== (b.order ?? 0)) {
+          return (a.order ?? 0) - (b.order ?? 0);
+        }
+        // Fallback to name if order is same
+        return a.name.localeCompare(b.name);
+      });
   }, [state.employees, state.currentHotelId, state.month, state.year]);
 
   const totals = useMemo(() => {
     const totalSalaries = currentEmployees.reduce((sum, emp) => sum + calculateEmployeeSalary(emp, state), 0);
     const totalExpenses = currentExpenses.reduce((sum, ex) => sum + ex.amount, 0);
     const taxAmount = currentFinance.contractValue * (currentFinance.taxRate / 100);
-    const totalCosts = totalSalaries + totalExpenses + taxAmount;
-    const netProfit = currentFinance.contractValue - totalCosts;
+    
+    // Total Costs should be Salaries + Expenses
+    // Tax is a pass-through (collected from hotel, paid to govt)
+    // So profit = ContractValue - (Salaries + Expenses)
+    const totalCosts = totalSalaries + totalExpenses;
+    const profit = currentFinance.contractValue - totalCosts;
 
     return {
       salaries: totalSalaries,
       expenses: totalExpenses,
-      tax: taxAmount,
+      tax: taxAmount, // This is explicitly the VAT amount
       costs: totalCosts,
-      profit: netProfit
+      profit: profit
     };
-  }, [currentEmployees, currentExpenses, currentFinance, state.attendance, daysInMonth, state.advances]);
+  }, [currentEmployees, currentExpenses, currentFinance.contractValue, currentFinance.taxRate, state]);
 
   // Monitor Profit Margin
   useEffect(() => {
@@ -277,55 +447,156 @@ export default function App() {
 
   }, [state.finance, state.notifications, state.month, state.year]);
 
-  const updateFinance = (updates: Partial<FinanceData>) => {
+  const updateFinance = async (updates: Partial<FinanceData>) => {
+    if (!user) return;
     const key = `${state.year}-${state.month}-${state.currentHotelId}`;
     const oldStatus = currentFinance.status;
+    const financeRef = doc(db, 'users', user.uid, 'finance', key);
     
-    setState(prev => ({
-      ...prev,
-      finance: {
-        ...prev.finance,
-        [key]: { ...currentFinance, ...updates }
-      }
-    }));
-
-    if (updates.status && updates.status !== oldStatus && state.notifications?.onStatusChange) {
-      sendNotification(
-        "Invoice Status Updated / تحديث حالة الفاتورة",
-        `Invoice status changed to "${updates.status}" for ${MONTHS[state.month]} ${state.year}`
+    console.log('Updating finance:', key, updates);
+    
+    try {
+      // Remove undefined fields to prevent Firestore errors
+      const cleanUpdates = Object.fromEntries(
+        Object.entries(updates).filter(([_, v]) => v !== undefined)
       );
+
+      const dataToSet = { 
+        status: currentFinance.status,
+        ...cleanUpdates,
+        year: state.year,
+        month: state.month,
+        hotelId: state.currentHotelId
+      };
+
+      await setDoc(financeRef, dataToSet, { merge: true });
+
+      if (updates.status && updates.status !== oldStatus && state.notifications?.onStatusChange) {
+        sendNotification(
+          "Invoice Status Updated / تحديث حالة الفاتورة",
+          `Invoice status changed to "${updates.status}" for ${MONTHS[state.month]} ${state.year}`
+        );
+      }
+    } catch (e) {
+      console.error('Error in updateFinance:', e);
+      // Construct a detailed error message including data
+      const details = {
+        error: e instanceof Error ? e.message : String(e),
+        data: { 
+          status: currentFinance.status,
+          year: state.year,
+          month: state.month,
+          hotelId: state.currentHotelId,
+          updates: updates
+        }
+      };
+      handleFirestoreError(new Error(JSON.stringify(details)), OperationType.WRITE, `users/${user.uid}/finance/${key}`);
     }
   };
 
-  const cycleAttendance = (empId: string, day: number) => {
+  const uploadInvoice = async (file: File) => {
+    if (!user) {
+      alert("يرجى تسجيل الدخول أولاً / Please log in first");
+      return;
+    }
+    if (!state.currentHotelId) {
+      alert("يرجى اختيار الفندق أولاً / Please select a hotel first");
+      return;
+    }
+    
+    const key = `${state.year}-${state.month}-${state.currentHotelId}`;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `invoices/${user.uid}/${key}_${Date.now()}.${fileExt}`;
+    const storageRef = ref(storage, fileName);
+
+    console.log('Starting upload for file:', file.name, 'Size:', file.size, 'Type:', file.type);
+    console.log('Storage path:', fileName);
+
+    try {
+      // 1. Upload file
+      const snapshot = await uploadBytes(storageRef, file);
+      console.log('File uploaded successfully. Snapshot:', snapshot);
+      
+      const url = await getDownloadURL(snapshot.ref);
+      console.log('File URL obtained:', url);
+
+      // 2. Create invoice object
+      const newInvoice = {
+        id: Math.random().toString(36).substr(2, 9),
+        url,
+        name: file.name,
+        type: file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : file.type,
+        createdAt: Date.now()
+      };
+
+      // 3. Update Firestore
+      await updateFinance({ 
+        invoices: [...(currentFinance.invoices || []), newInvoice]
+      });
+      console.log('Firestore updated with new invoice');
+    } catch (error) {
+      console.error("Error uploading invoice", error);
+      const errorMessage = error instanceof Error ? error.message : "Internal Error";
+      alert(`خطأ في رفع الفاتورة: تأكد من إعدادات Storage في Firebase\nError: ${errorMessage}`);
+      throw error; // Re-throw to be caught by form finally block
+    }
+  };
+
+  const removeInvoiceFile = async (id: string) => {
+    if (!user) return;
+    
+    try {
+      const updatedInvoices = (currentFinance.invoices || []).filter(inv => inv.id !== id);
+      await updateFinance({ invoices: updatedInvoices });
+    } catch (error) {
+       console.error("Error removing invoice", error);
+    }
+  };
+
+  const cycleAttendance = async (empId: string, day: number) => {
+    if (!user) return;
     const key = `${state.year}-${state.month}-${empId}-${day}`;
     const statuses: AttendanceStatus[] = ['', 'D', 'A', 'O'];
     const currentStatus = state.attendance[key] || '';
     const nextStatus = statuses[(statuses.indexOf(currentStatus) + 1) % 4];
 
-    setState(prev => ({
-      ...prev,
-      attendance: {
-        ...prev.attendance,
-        [key]: nextStatus
+    const attRef = doc(db, 'users', user.uid, 'attendance', key);
+    try {
+      if (nextStatus === '') {
+        await deleteDoc(attRef);
+      } else {
+        await setDoc(attRef, { 
+          status: nextStatus,
+          year: state.year,
+          month: state.month,
+          empId,
+          day 
+        });
       }
-    }));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/attendance/${key}`);
+    }
   };
 
-  const addExpense = (description: string, amount: number) => {
-    if (!description || !amount) return;
+  const addExpense = async (description: string, amount: number) => {
+    if (!description || !amount || !user) return;
+    const id = Math.random().toString(36).substr(2, 9);
     const newExpense: Expense = {
-      id: Math.random().toString(36).substr(2, 9),
+      id,
       description,
       amount,
       month: state.month,
       year: state.year,
       hotelId: state.currentHotelId
     };
-    setState(prev => ({
-      ...prev,
-      expenses: [...prev.expenses, newExpense]
-    }));
+    
+    const expRef = doc(db, 'users', user.uid, 'expenses', id);
+    try {
+      const { id: _, ...data } = newExpense;
+      await setDoc(expRef, data);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}/expenses/${id}`);
+    }
   };
 
   const handlePrint = () => {
@@ -336,15 +607,18 @@ export default function App() {
   };
 
   const removeExpense = (id: string) => {
+    if (!user) return;
     const expense = state.expenses.find(ex => ex.id === id);
     showConfirmation(
       'حذف مصروف / Delete Expense',
       `هل أنت متأكد من حذف المصفوف "${expense?.description}" بقيمة ${expense?.amount}؟ / Are you sure you want to delete this expense?`,
-      () => {
-        setState(prev => ({
-          ...prev,
-          expenses: prev.expenses.filter(ex => ex.id !== id)
-        }));
+      async () => {
+        const expRef = doc(db, 'users', user.uid, 'expenses', id);
+        try {
+          await deleteDoc(expRef);
+        } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/expenses/${id}`);
+        }
       }
     );
   };
@@ -359,34 +633,87 @@ export default function App() {
     linkElement.click();
   };
 
-  const importData = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const content = e.target?.result as string;
-        const parsed = JSON.parse(content);
+        const importedData: AppState = JSON.parse(content);
         
-        // Basic validation
-        if (!parsed.hotels || !parsed.employees) {
-          throw new Error('الملف غير صالح / Invalid backup file');
+        const confirmResult = window.confirm('هل أنت متأكد من استيراد هذه النسخة الاحتياطية؟ سيؤدي ذلك إلى استبدال البيانات الحالية في السحابة. / Are you sure you want to import this backup? This will replace current data in the cloud.');
+        if (!confirmResult) return;
+
+        const batch = writeBatch(db);
+        
+        // Update profile
+        batch.set(doc(db, 'users', user.uid), {
+          theme: importedData.theme || INITIAL_STATE.theme,
+          notifications: importedData.notifications || INITIAL_STATE.notifications,
+          currentHotelId: importedData.currentHotelId || INITIAL_STATE.currentHotelId,
+          month: importedData.month ?? INITIAL_STATE.month,
+          year: importedData.year ?? INITIAL_STATE.year
+        });
+
+        // Batch upload collections
+        if (Array.isArray(importedData.hotels)) {
+          importedData.hotels.forEach(h => {
+            const { id, ...data } = h;
+            batch.set(doc(db, 'users', user.uid, 'hotels', id), data);
+          });
         }
 
-        showConfirmation(
-          'استعادة البيانات / Restore Data',
-          'هل أنت متأكد من استيراد هذه النسخة؟ سيتم استبدال البيانات الحالية بالكامل. / Are you sure? This will replace all current data.',
-          () => {
-            setState(parsed);
-          }
-        );
+        if (Array.isArray(importedData.employees)) {
+          importedData.employees.forEach(emp => {
+            const { id, ...data } = emp;
+            batch.set(doc(db, 'users', user.uid, 'employees', id), data);
+          });
+        }
+
+        if (Array.isArray(importedData.expenses)) {
+          importedData.expenses.forEach(ex => {
+            const { id, ...data } = ex;
+            batch.set(doc(db, 'users', user.uid, 'expenses', id), data);
+          });
+        }
+
+        if (Array.isArray(importedData.advances)) {
+          importedData.advances.forEach(adv => {
+            const { id, ...data } = adv;
+            batch.set(doc(db, 'users', user.uid, 'advances', id), data);
+          });
+        }
+
+        if (importedData.finance) {
+          Object.entries(importedData.finance).forEach(([key, val]) => {
+            batch.set(doc(db, 'users', user.uid, 'finance', key), val);
+          });
+        }
+
+        if (importedData.attendance) {
+          Object.entries(importedData.attendance).forEach(([key, status]) => {
+            const parts = key.split('-');
+            if (parts.length >= 4) {
+              batch.set(doc(db, 'users', user.uid, 'attendance', key), { 
+                status,
+                year: parseInt(parts[0]),
+                month: parseInt(parts[1]),
+                empId: parts[2],
+                day: parseInt(parts[3])
+              });
+            }
+          });
+        }
+
+        await batch.commit();
+        alert('تم استيراد البيانات بنجاح / Import successful');
       } catch (err) {
-        alert('خطأ في قراءة الملف / Error reading file: ' + (err as Error).message);
+        alert('خطأ في استيراد البيانات / Error importing data: ' + (err as Error).message);
       }
     };
     reader.readAsText(file);
-    // Reset input
     event.target.value = '';
   };
 
@@ -401,53 +728,81 @@ export default function App() {
   const [newHotelName, setNewHotelName] = useState('');
   const [editingHotelId, setEditingHotelId] = useState<string | null>(null);
 
-  const addHotel = () => {
-    if (!newHotelName.trim()) return;
+  const addHotel = async () => {
+    if (!newHotelName.trim() || !user) return;
     
-    if (editingHotelId) {
-      setState(prev => ({
-        ...prev,
-        hotels: prev.hotels.map(h => h.id === editingHotelId ? { ...h, name: newHotelName.trim() } : h)
-      }));
-    } else {
-      const newId = Math.random().toString(36).substr(2, 9);
-      const newHotel = { id: newId, name: newHotelName.trim() };
-      
-      setState(prev => ({
-        ...prev,
-        hotels: [...prev.hotels, newHotel],
-        currentHotelId: newId
-      }));
+    try {
+      if (editingHotelId) {
+        const hotelRef = doc(db, 'users', user.uid, 'hotels', editingHotelId);
+        await updateDoc(hotelRef, { name: newHotelName.trim() });
+      } else {
+        const newId = Math.random().toString(36).substr(2, 9);
+        const hotelRef = doc(db, 'users', user.uid, 'hotels', newId);
+        await setDoc(hotelRef, { name: newHotelName.trim() });
+        
+        // Update current hotel in profile
+        await updateDoc(doc(db, 'users', user.uid), { currentHotelId: newId });
+      }
+      setNewHotelName('');
+      setEditingHotelId(null);
+      setShowHotelModal(false);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/hotels`);
     }
-    setNewHotelName('');
-    setEditingHotelId(null);
-    setShowHotelModal(false);
   };
 
   const removeHotel = (id: string) => {
-    if (state.hotels.length <= 1) return;
+    if (state.hotels.length <= 1 || !user) return;
     
     const hotelName = state.hotels.find(h => h.id === id)?.name;
     showConfirmation(
       'حذف فندق / Delete Hotel',
       `هل أنت متأكد من حذف فندق "${hotelName}"؟ سيتم حذف جميع الموظفين والمصروفات المرتبطة به. / Are you sure you want to delete "${hotelName}"? All associated employees and expenses will be removed.`,
-      () => {
-        setState(prev => ({
-          ...prev,
-          hotels: prev.hotels.filter(h => h.id !== id),
-          currentHotelId: prev.hotels[0].id,
-          employees: prev.employees.filter(e => e.hotelId !== id),
-          expenses: prev.expenses.filter(ex => ex.hotelId !== id)
-        }));
+      async () => {
+        try {
+          const batch = writeBatch(db);
+          
+          // Delete hotel doc
+          batch.delete(doc(db, 'users', user.uid, 'hotels', id));
+          
+          // Delete associated employees
+          const employeesToDel = state.employees.filter(e => e.hotelId === id);
+          employeesToDel.forEach(e => batch.delete(doc(db, 'users', user.uid, 'employees', e.id)));
+          
+          // Delete associated expenses
+          const expensesToDel = state.expenses.filter(ex => ex.hotelId === id);
+          expensesToDel.forEach(ex => batch.delete(doc(db, 'users', user.uid, 'expenses', ex.id)));
+
+          // Delete associated finance records
+          const financeToDel = Object.keys(state.finance).filter(k => k.endsWith(`-${id}`));
+          financeToDel.forEach(k => batch.delete(doc(db, 'users', user.uid, 'finance', k)));
+
+          await batch.commit();
+
+          // Reset current hotel if deleted
+          if (state.currentHotelId === id) {
+            const remainingHotels = state.hotels.filter(h => h.id !== id);
+            if (remainingHotels.length > 0) {
+              await updateDoc(doc(db, 'users', user.uid), { currentHotelId: remainingHotels[0].id });
+            }
+          }
+        } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/hotels/${id}`);
+        }
       }
     );
   };
 
-  const addEmployee = (name: string, salary: number, position: string = '') => {
-    if (!name || !salary) return;
+  const addEmployee = async (name: string, salary: number, position: string = '') => {
+    if (!name || !salary || !user) return;
     const now = new Date().toISOString().split('T')[0];
+    const id = Math.random().toString(36).substr(2, 9);
+    
+    // Set order to be the last
+    const maxOrder = currentEmployees.reduce((max, emp) => Math.max(max, emp.order ?? 0), 0);
+    
     const newEmp: Employee = {
-      id: Math.random().toString(36).substr(2, 9),
+      id,
       name,
       position,
       salary,
@@ -459,15 +814,21 @@ export default function App() {
       }],
       hotelId: state.currentHotelId,
       month: state.month,
-      year: state.year
+      year: state.year,
+      order: maxOrder + 1
     };
-    setState(prev => ({
-      ...prev,
-      employees: [...prev.employees, newEmp]
-    }));
+
+    const empRef = doc(db, 'users', user.uid, 'employees', id);
+    try {
+      const { id: _, ...data } = newEmp;
+      await setDoc(empRef, data);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}/employees/${id}`);
+    }
   };
 
-  const copyEmployeesFromPreviousMonth = () => {
+  const copyEmployeesFromPreviousMonth = async () => {
+    if (!user) return;
     const prevMonth = state.month === 0 ? 11 : state.month - 1;
     const prevYear = state.month === 0 ? state.year - 1 : state.year;
     
@@ -482,21 +843,31 @@ export default function App() {
       return;
     }
 
-    const performCopy = () => {
-      const copiedEmployees = prevEmployees.map(e => ({
-        ...e,
-        id: Math.random().toString(36).substr(2, 9),
-        month: state.month,
-        year: state.year
-      }));
+    const performCopy = async () => {
+      try {
+        const batch = writeBatch(db);
+        
+        // Remove current month employees for this hotel first? 
+        // The original logic filtered them out locally.
+        const currentMonthEmps = state.employees.filter(e => e.hotelId === state.currentHotelId && e.month === state.month && e.year === state.year);
+        currentMonthEmps.forEach(e => batch.delete(doc(db, 'users', user.uid, 'employees', e.id)));
 
-      setState(prev => ({
-        ...prev,
-        employees: [
-          ...prev.employees.filter(e => !(e.hotelId === state.currentHotelId && e.month === state.month && e.year === state.year)),
-          ...copiedEmployees
-        ]
-      }));
+        // Add copied employees
+        prevEmployees.forEach(e => {
+          const newId = Math.random().toString(36).substr(2, 9);
+          const { id: _, ...data } = e;
+          batch.set(doc(db, 'users', user.uid, 'employees', newId), {
+            ...data,
+            month: state.month,
+            year: state.year,
+            order: data.order // Ensure order is copied
+          });
+        });
+
+        await batch.commit();
+      } catch (e) {
+        handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/employees/batch-copy`);
+      }
     };
 
     if (currentEmployees.length > 0) {
@@ -513,74 +884,122 @@ export default function App() {
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [activeAdvanceEmpId, setActiveAdvanceEmpId] = useState<string | null>(null);
 
-  const addAdvance = (empId: string, amount: number, reason: string) => {
-    if (!amount) return;
-    const newAdvance = {
-      id: Math.random().toString(36).substr(2, 9),
-      empId,
-      amount,
-      reason: reason || 'سلفة',
-      month: state.month,
-      year: state.year
-    };
-    setState(prev => ({
-      ...prev,
-      advances: [...prev.advances, newAdvance]
-    }));
+  const addAdvance = async (empId: string, amount: number, reason: string) => {
+    if (!amount || !user) return;
+    const id = Math.random().toString(36).substr(2, 9);
+    const advRef = doc(db, 'users', user.uid, 'advances', id);
+    try {
+      await setDoc(advRef, {
+        empId,
+        amount,
+        reason: reason || 'سلفة',
+        month: state.month,
+        year: state.year
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}/advances/${id}`);
+    }
   };
 
-  const removeAdvance = (id: string) => {
-    setState(prev => ({
-      ...prev,
-      advances: prev.advances.filter(a => a.id !== id)
-    }));
+  const removeAdvance = async (id: string) => {
+    if (!user) return;
+    const advRef = doc(db, 'users', user.uid, 'advances', id);
+    try {
+      await deleteDoc(advRef);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/advances/${id}`);
+    }
   };
-  const updateEmployee = (id: string, updates: Partial<Employee>) => {
-    setState(prev => ({
-      ...prev,
-      employees: prev.employees.map(emp => {
-        if (emp.id === id) {
-          const updatedEmp = { ...emp, ...updates };
+
+  const updateEmployee = async (id: string, updates: Partial<Employee>) => {
+    if (!user) return;
+    const emp = state.employees.find(e => e.id === id);
+    if (!emp) return;
+
+    const empRef = doc(db, 'users', user.uid, 'employees', id);
+    const updatedData: any = { ...updates };
           
-          // Track salary history if salary changed
-          if (updates.salary !== undefined && updates.salary !== emp.salary) {
-            const history = emp.salaryHistory || [];
-            const exists = history.find(h => h.month === state.month && h.year === state.year);
-            const now = new Date().toISOString().split('T')[0];
-            
-            if (exists) {
-              updatedEmp.salaryHistory = history.map(h => 
-                (h.month === state.month && h.year === state.year) 
-                  ? { ...h, amount: updates.salary!, date: now } 
-                  : h
-              );
-            } else {
-              updatedEmp.salaryHistory = [
-                ...history, 
-                { amount: updates.salary, month: state.month, year: state.year, date: now }
-              ].sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month));
-            }
-          }
-          
-          return updatedEmp;
-        }
-        return emp;
-      })
-    }));
+    // Track salary history if salary changed
+    if (updates.salary !== undefined && updates.salary !== emp.salary) {
+      const history = emp.salaryHistory || [];
+      const exists = history.find(h => h.month === state.month && h.year === state.year);
+      const now = new Date().toISOString().split('T')[0];
+      
+      if (exists) {
+        updatedData.salaryHistory = history.map(h => 
+          (h.month === state.month && h.year === state.year) 
+            ? { ...h, amount: updates.salary!, date: now } 
+            : h
+        );
+      } else {
+        updatedData.salaryHistory = [
+          ...history, 
+          { amount: updates.salary, month: state.month, year: state.year, date: now }
+        ].sort((a, b) => (b.year * 12 + b.month) - (a.year * 12 + a.month));
+      }
+    }
+
+    try {
+      await updateDoc(empRef, updatedData);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}/employees/${id}`);
+    }
   };
 
   const removeEmployee = (id: string) => {
+    if (!user) return;
     const empName = state.employees.find(e => e.id === id)?.name;
     showConfirmation(
       'حذف موظف / Delete Employee',
       `هل أنت متأكد من حذف الموظف "${empName}"؟ / Are you sure you want to delete employee "${empName}"?`,
-      () => {
-        setState(prev => ({
-          ...prev,
-          employees: prev.employees.filter(e => e.id !== id)
-        }));
+      async () => {
+        try {
+          const batch = writeBatch(db);
+          // Delete employee
+          batch.delete(doc(db, 'users', user.uid, 'employees', id));
+          
+          // Delete associated advances
+          const advancesToDel = state.advances.filter(a => a.empId === id);
+          advancesToDel.forEach(a => batch.delete(doc(db, 'users', user.uid, 'advances', a.id)));
+
+          // Delete associated attendance
+          const attendanceToDel = Object.keys(state.attendance).filter(k => k.includes(`-${id}-`));
+          attendanceToDel.forEach(k => batch.delete(doc(db, 'users', user.uid, 'attendance', k)));
+
+          await batch.commit();
+        } catch (e) {
+          handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/employees/${id}`);
+        }
       }
     );
+  };
+
+  const reorderEmployee = async (id: string, direction: 'up' | 'down') => {
+    if (!user) return;
+    const index = currentEmployees.findIndex(e => e.id === id);
+    if (index === -1) return;
+    
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= currentEmployees.length) return;
+    
+    const emp1 = currentEmployees[index];
+    const emp2 = currentEmployees[targetIndex];
+    
+    let order1 = emp1.order !== undefined ? emp1.order : index;
+    let order2 = emp2.order !== undefined ? emp2.order : targetIndex;
+
+    if (order1 === order2) {
+      order2 = order1 + 1;
+    }
+
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'users', user.uid, 'employees', emp1.id), { order: order2 });
+      batch.update(doc(db, 'users', user.uid, 'employees', emp2.id), { order: order1 });
+      await batch.commit();
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/employees/reorder`);
+    }
   };
 
   return (
@@ -669,7 +1088,19 @@ export default function App() {
               </button>
               <div className="hidden lg:flex gap-2">
                 <button 
-                  onClick={manualSave}
+                  onClick={async () => {
+                    if (!user) return;
+                    await updateDoc(doc(db, 'users', user.uid), {
+                      month: state.month,
+                      year: state.year,
+                      currentHotelId: state.currentHotelId,
+                      notifications: state.notifications,
+                      theme: state.theme
+                    });
+                    setLastSaved(new Date().toLocaleTimeString());
+                    setShowSaveIndicator(true);
+                    setTimeout(() => setShowSaveIndicator(false), 2000);
+                  }}
                   className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-brand-card border border-brand-border rounded-lg hover:bg-brand-bg transition-all text-brand-primary"
                   title="حفظ البيانات / Save Data"
                 >
@@ -685,23 +1116,31 @@ export default function App() {
                   <Download size={14} />
                   تصدير / Export
                 </button>
+                <button 
+                  onClick={logOut}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-bold bg-red-600/10 border border-red-200 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all shadow-sm active:scale-95 px-3 sm:px-4"
+                  title="تسجيل الخروج / Logout"
+                >
+                  <LogOut size={16} />
+                  خروج / Exit
+                </button>
               </div>
 
               {/* Mobile/Tablet Icons */}
               <div className="flex lg:hidden gap-1">
-                <button 
-                  onClick={manualSave}
-                  className="p-2 bg-brand-card border border-brand-border rounded-lg text-brand-primary hover:bg-brand-bg"
-                  title="حفظ"
-                >
-                  <Receipt size={16} className="text-brand-gold" />
-                </button>
                 <label className="p-2 bg-brand-card border border-brand-border rounded-lg text-brand-primary cursor-pointer hover:bg-brand-bg">
                   <Download size={16} className="rotate-180" />
                   <input type="file" accept=".json" onChange={importData} className="hidden" />
                 </label>
                 <button onClick={exportData} className="p-2 bg-brand-card border border-brand-border rounded-lg text-brand-primary hover:bg-brand-bg">
                   <Download size={16} />
+                </button>
+                <button 
+                  onClick={logOut}
+                  className="p-2 bg-red-600/10 border border-red-200 rounded-lg text-red-600 hover:bg-red-600 hover:text-white"
+                  title="خروج"
+                >
+                  <LogOut size={16} />
                 </button>
               </div>
 
@@ -755,7 +1194,26 @@ export default function App() {
           </div>
         </div>
 
-        <Dashboard totals={totals} currentFinance={currentFinance} />
+        <Dashboard 
+          totals={totals} 
+          currentFinance={currentFinance} 
+          monthInvoices={(() => {
+            return Object.entries(state.finance)
+              .filter(([key]) => {
+                const parts = key.split('-');
+                return parts[0] === String(state.year) && parts[1] === String(state.month);
+              })
+              .flatMap(([key, data]: [string, any]) => {
+                const parts = key.split('-');
+                const hotelId = parts[2];
+                const hotel = state.hotels.find(h => h.id === hotelId);
+                return (data.invoices || []).map((inv: any) => ({
+                  ...inv,
+                  hotelName: hotel?.name || 'Document'
+                }));
+              });
+          })()}
+        />
 
         <section className="no-print">
           <div className="bg-brand-card p-6 rounded-3xl border border-brand-border shadow-sm">
@@ -945,6 +1403,7 @@ export default function App() {
             setEditingEmployeeId={setEditingEmployeeId}
             updateEmployee={updateEmployee}
             removeEmployee={removeEmployee}
+            reorderEmployee={reorderEmployee}
             copyEmployeesFromPreviousMonth={copyEmployeesFromPreviousMonth}
             addEmployee={addEmployee}
             months={MONTHS}
@@ -1012,7 +1471,12 @@ export default function App() {
       </AnimatePresence>
 
       <section className="max-w-[1600px] mx-auto px-4 mb-20 no-print">
-        <InvoiceForm currentFinance={currentFinance} updateFinance={updateFinance} />
+        <InvoiceForm 
+          currentFinance={currentFinance} 
+          updateFinance={updateFinance}
+          uploadInvoice={uploadInvoice}
+          removeInvoiceFile={removeInvoiceFile}
+        />
       </section>
 
       <MonthSummary 
@@ -1080,7 +1544,12 @@ export default function App() {
                     <input 
                       type="checkbox" 
                       checked={state.notifications?.onStatusChange}
-                      onChange={(e) => setState(p => ({ ...p, notifications: { ...p.notifications!, onStatusChange: e.target.checked } }))}
+                      onChange={async (e) => {
+                        if (!user) return;
+                        await updateDoc(doc(db, 'users', user.uid), {
+                          'notifications.onStatusChange': e.target.checked
+                        });
+                      }}
                       className="w-4 h-4 accent-brand-gold"
                     />
                   </div>
@@ -1093,7 +1562,12 @@ export default function App() {
                     <input 
                       type="checkbox" 
                       checked={state.notifications?.onOverdueFinancials}
-                      onChange={(e) => setState(p => ({ ...p, notifications: { ...p.notifications!, onOverdueFinancials: e.target.checked } }))}
+                      onChange={async (e) => {
+                        if (!user) return;
+                        await updateDoc(doc(db, 'users', user.uid), {
+                          'notifications.onOverdueFinancials': e.target.checked
+                        });
+                      }}
                       className="w-4 h-4 accent-brand-gold"
                     />
                   </div>
@@ -1107,7 +1581,12 @@ export default function App() {
                       <input 
                         type="checkbox" 
                         checked={state.notifications?.onLowProfit}
-                        onChange={(e) => setState(p => ({ ...p, notifications: { ...p.notifications!, onLowProfit: e.target.checked } }))}
+                        onChange={async (e) => {
+                          if (!user) return;
+                          await updateDoc(doc(db, 'users', user.uid), {
+                            'notifications.onLowProfit': e.target.checked
+                          });
+                        }}
                         className="w-4 h-4 accent-brand-gold"
                       />
                     </div>
@@ -1123,7 +1602,12 @@ export default function App() {
                         max="50"
                         step="5"
                         value={state.notifications?.profitThreshold}
-                        onChange={(e) => setState(p => ({ ...p, notifications: { ...p.notifications!, profitThreshold: parseInt(e.target.value) } }))}
+                        onChange={async (e) => {
+                          if (!user) return;
+                          await updateDoc(doc(db, 'users', user.uid), {
+                            'notifications.profitThreshold': parseInt(e.target.value)
+                          });
+                        }}
                         className="w-full accent-brand-gold h-1.5 rounded-lg appearance-none bg-brand-border cursor-pointer"
                        />
                     </div>
@@ -1184,4 +1668,30 @@ export default function App() {
       </AnimatePresence>
     </div>
   );
+}
+
+export default function App() {
+  return (
+    <FirebaseProvider>
+      <AppSwitcher />
+    </FirebaseProvider>
+  );
+}
+
+function AppSwitcher() {
+  const { user, loading } = useFirebase();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-brand-bg flex items-center justify-center">
+        <Loader2 className="animate-spin text-brand-primary" size={40} />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  return <AppContent />;
 }

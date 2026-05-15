@@ -20,7 +20,10 @@ import {
   PieChart as PieChartIcon,
   BarChart3,
   Eye,
-  EyeOff
+  EyeOff,
+  FileText,
+  Image as ImageIcon,
+  FileSpreadsheet
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { FinanceData } from '../types';
@@ -34,9 +37,10 @@ interface DashboardProps {
     profit: number;
   };
   currentFinance: FinanceData;
+  monthInvoices: any[];
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ totals, currentFinance }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ totals, currentFinance, monthInvoices }) => {
   const [isBlurred, setIsBlurred] = useState(true);
 
   return (
@@ -67,8 +71,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ totals, currentFinance }) 
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'إجمالي التعاقد / Total Contract', value: totals.tax + totals.costs + totals.profit, icon: Wallet, color: 'text-brand-primary', bg: 'bg-brand-primary/10', sub: 'القيمة الكلية قبل الخصومات' },
-          { label: 'صافي الربح / Net Profit', value: totals.profit, icon: TrendingUp, color: 'text-[#2e7d32]', bg: 'bg-[#2e7d32]/10', sub: 'الربح بعد المصروفات والضرائب' },
+          { label: 'اجمالي فاتورة التعاقد / Total Contract Invoice', value: totals.tax + totals.costs + totals.profit, icon: Wallet, color: 'text-brand-primary', bg: 'bg-brand-primary/10', sub: 'القيمة الكلية قبل الخصومات' },
+          { 
+            label: 'صافي الربح / Net Profit', 
+            value: totals.profit, 
+            icon: TrendingUp, 
+            color: 'text-[#2e7d32]', 
+            bg: 'bg-[#2e7d32]/10', 
+            sub: 'الربح بعد المصروفات والضرائب' 
+          },
           { label: 'إجمالي التكاليف / Total Costs', value: totals.costs, icon: TrendingDown, color: 'text-[#c0392b]', bg: 'bg-[#c0392b]/10', sub: 'المرتبات والمصروفات الإدارية' },
           { label: 'حالة الفاتورة / Inv. Status', value: currentFinance.status, icon: Receipt, color: 'text-brand-gold', bg: 'bg-brand-gold/10', isStatus: true, sub: 'آخر تحديث لدورة التحصيل' }
         ].map((stat, i) => (
@@ -92,6 +103,48 @@ export const Dashboard: React.FC<DashboardProps> = ({ totals, currentFinance }) 
           </motion.div>
         ))}
       </div>
+
+      {/* Month's Invoices Summary */}
+      {monthInvoices.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-brand-card p-6 rounded-3xl border border-brand-border shadow-sm"
+        >
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2.5 bg-brand-primary/10 text-brand-primary rounded-xl">
+              <FileText size={20} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-brand-primary">أرشيف فواتير الشهر / Month's Invoices</h3>
+              <p className="text-[10px] font-bold text-brand-neutral">قائمة بجميع الملفات المرفقة لهذا الشهر</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {monthInvoices.map((inv, idx) => (
+              <a
+                key={inv.id || idx}
+                href={inv.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex flex-col items-center p-3 bg-brand-bg border border-brand-border rounded-2xl hover:border-brand-primary hover:bg-brand-card transition-all group group relative"
+              >
+                <div className="mb-2 p-2 bg-brand-card rounded-xl group-hover:scale-110 transition-transform shadow-sm">
+                  {inv.type?.includes('image') ? <ImageIcon size={20} className="text-brand-gold" /> : 
+                   inv.type?.includes('spreadsheet') || inv.type?.includes('excel') ? <FileSpreadsheet size={20} className="text-green-600" /> :
+                   <FileText size={20} className="text-brand-primary" />}
+                </div>
+                <span className="text-[9px] font-bold text-brand-primary truncate w-full text-center" title={inv.name}>
+                  {inv.name}
+                </span>
+                <span className="text-[8px] font-black text-brand-neutral/40 mt-1 uppercase">
+                  {inv.hotelName || 'Document'}
+                </span>
+              </a>
+            ))}
+          </div>
+        </motion.div>
+      )}
     </section>
   );
 };

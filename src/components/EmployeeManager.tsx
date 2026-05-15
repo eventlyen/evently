@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Plus, Trash2, Activity } from 'lucide-react';
+import { Users, Plus, Trash2, Activity, ChevronUp, ChevronDown } from 'lucide-react';
 import { Employee } from '../types';
 
 interface EmployeeManagerProps {
@@ -8,6 +8,7 @@ interface EmployeeManagerProps {
   setEditingEmployeeId: (id: string | null) => void;
   updateEmployee: (id: string, updates: Partial<Employee>) => void;
   removeEmployee: (id: string) => void;
+  reorderEmployee: (id: string, direction: 'up' | 'down') => void;
   copyEmployeesFromPreviousMonth: () => void;
   addEmployee: (name: string, salary: number, position?: string) => void;
   months: string[];
@@ -19,6 +20,7 @@ export const EmployeeManager: React.FC<EmployeeManagerProps> = ({
   setEditingEmployeeId,
   updateEmployee,
   removeEmployee,
+  reorderEmployee,
   copyEmployeesFromPreviousMonth,
   addEmployee,
   months
@@ -113,6 +115,22 @@ export const EmployeeManager: React.FC<EmployeeManagerProps> = ({
                   <p className="text-[10px] text-brand-neutral">{emp.position || 'بدون مسمى'} • {emp.salary.toLocaleString()} EGP</p>
                 </div>
                 <div className="flex items-center gap-1">
+                  <div className="flex flex-col gap-0.5 mr-2 border-r border-brand-border pr-2">
+                    <button 
+                      onClick={() => reorderEmployee(emp.id, 'up')}
+                      className="p-1 text-brand-neutral hover:text-brand-primary transition-colors disabled:opacity-20"
+                      title="تحريك لأعلى"
+                    >
+                      <ChevronUp size={14} />
+                    </button>
+                    <button 
+                      onClick={() => reorderEmployee(emp.id, 'down')}
+                      className="p-1 text-brand-neutral hover:text-brand-primary transition-colors disabled:opacity-20"
+                      title="تحريك لأسفل"
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  </div>
                   <button 
                     onClick={() => setEditingEmployeeId(emp.id)} 
                     className="p-1.5 text-brand-neutral hover:bg-brand-primary/10 hover:text-brand-primary rounded-lg transition-all"
