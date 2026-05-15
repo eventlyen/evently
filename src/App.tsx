@@ -1214,7 +1214,9 @@ export function AppContent() {
                   <Building2 size={16} className={state.currentHotelId === hotel.id ? 'animate-pulse' : ''} />
                   <span>{hotel.name}</span>
                 </button>
-                <div className="absolute -top-3 -left-2 hidden group-hover:flex gap-1 z-20">
+                <div className={`absolute -top-3 -left-2 z-20 gap-1 ${
+                  state.currentHotelId === hotel.id ? 'flex' : 'hidden group-hover:flex'
+                }`}>
                   <button 
                     onClick={(e) => { 
                       e.stopPropagation(); 
