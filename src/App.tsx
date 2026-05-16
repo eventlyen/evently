@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { 
   Building2, 
   Users, 
@@ -191,6 +191,23 @@ export function AppContent() {
 
   const [lastSaved, setLastSaved] = useState<string>(new Date().toLocaleTimeString());
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
+  
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Auto-save every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      localStorage.setItem('evently_pro_v1', JSON.stringify(stateRef.current));
+      setLastSaved(new Date().toLocaleTimeString());
+      setShowSaveIndicator(true);
+      setTimeout(() => setShowSaveIndicator(false), 2000);
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    return () => clearInterval(interval);
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMonth, setSearchMonth] = useState(state.month);
   const [searchYear, setSearchYear] = useState(state.year);
@@ -380,25 +397,39 @@ export function AppContent() {
       });
   }, [state.employees, state.currentHotelId, state.month, state.year]);
 
+  const currentAdvances = useMemo(() => {
+    const activeEmpIds = new Set(currentEmployees.map(e => e.id));
+    return state.advances.filter(ad => 
+      ad.month === state.month && 
+      ad.year === state.year && 
+      (ad.hotelId === state.currentHotelId || activeEmpIds.has(ad.empId))
+    );
+  }, [state.advances, state.month, state.year, state.currentHotelId, currentEmployees]);
+
   const totals = useMemo(() => {
-    const totalSalaries = currentEmployees.reduce((sum, emp) => sum + calculateEmployeeSalary(emp, state), 0);
+    const totalBasicSalaries = currentEmployees.reduce((sum, emp) => sum + emp.salary, 0);
+    const totalNetSalaries = currentEmployees.reduce((sum, emp) => sum + calculateEmployeeSalary(emp, state), 0);
     const totalExpenses = currentExpenses.reduce((sum, ex) => sum + ex.amount, 0);
+    const totalAdvances = currentAdvances.reduce((sum, ad) => sum + ad.amount, 0);
     const taxAmount = currentFinance.contractValue * (currentFinance.taxRate / 100);
     
-    // Total Costs should be Salaries + Expenses
+    // Total Costs should be Salaries (Net + Advances) + Expenses
     // Tax is a pass-through (collected from hotel, paid to govt)
-    // So profit = ContractValue - (Salaries + Expenses)
-    const totalCosts = totalSalaries + totalExpenses;
+    // So profit = ContractValue - (NetSalaries + Advances + Expenses)
+    const totalCosts = totalNetSalaries + totalAdvances + totalExpenses;
     const profit = currentFinance.contractValue - totalCosts;
 
     return {
-      salaries: totalSalaries,
+      basicSalaries: totalBasicSalaries,
+      netSalaries: totalNetSalaries,
+      salaries: totalNetSalaries, // For backward compatibility if needed, though better to use explicit names
       expenses: totalExpenses,
+      advances: totalAdvances,
       tax: taxAmount, // This is explicitly the VAT amount
       costs: totalCosts,
       profit: profit
     };
-  }, [currentEmployees, currentExpenses, currentFinance.contractValue, currentFinance.taxRate, state]);
+  }, [currentEmployees, currentExpenses, currentAdvances, currentFinance.contractValue, currentFinance.taxRate, state]);
 
   // Monitor Profit Margin
   useEffect(() => {
@@ -936,7 +967,8 @@ export function AppContent() {
         amount,
         reason: reason || 'سلفة',
         month: state.month,
-        year: state.year
+        year: state.year,
+        hotelId: state.currentHotelId
       });
     } catch (e) {
       handleFirestoreError(e, OperationType.CREATE, `users/${user.uid}/advances/${id}`);

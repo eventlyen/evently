@@ -19,6 +19,8 @@ import {
   Activity,
   PieChart as PieChartIcon,
   BarChart3,
+  DollarSign,
+  CreditCard,
   Eye,
   EyeOff,
   FileText,
@@ -30,8 +32,11 @@ import { FinanceData } from '../types';
 
 interface DashboardProps {
   totals: {
+    basicSalaries: number;
+    netSalaries: number;
     salaries: number;
     expenses: number;
+    advances: number;
     tax: number;
     costs: number;
     profit: number;
@@ -69,7 +74,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ totals, currentFinance, mo
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {[
           { label: 'اجمالي فاتورة التعاقد / Total Contract Invoice', value: totals.tax + totals.costs + totals.profit, icon: Wallet, color: 'text-brand-primary', bg: 'bg-brand-primary/10', sub: 'القيمة الكلية قبل الخصومات' },
           { 
@@ -81,7 +86,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ totals, currentFinance, mo
             sub: 'الربح بعد المصروفات والضرائب' 
           },
           { label: 'إجمالي التكاليف / Total Costs', value: totals.costs, icon: TrendingDown, color: 'text-[#c0392b]', bg: 'bg-[#c0392b]/10', sub: 'المرتبات والمصروفات الإدارية' },
-          { label: 'حالة الفاتورة / Inv. Status', value: currentFinance.status, icon: Receipt, color: 'text-brand-gold', bg: 'bg-brand-gold/10', isStatus: true, sub: 'آخر تحديث لدورة التحصيل' }
+          { 
+            label: 'إجمالي الرواتب الشهرية / Monthly Basic Salaries', 
+            value: totals.basicSalaries, 
+            icon: DollarSign, 
+            color: 'text-brand-primary', 
+            bg: 'bg-brand-primary/10', 
+            sub: 'إجمالي الرواتب الأساسية للموظفين' 
+          },
+          { 
+            label: 'صافي الرواتب الشهرية / Monthly Net Salaries', 
+            value: totals.netSalaries, 
+            icon: PieChartIcon, 
+            color: 'text-[#7c3aed]', 
+            bg: 'bg-[#7c3aed]/10', 
+            sub: 'إجمالي المرتبات بعد السلف والخصومات' 
+          },
+          { 
+            label: 'سلف ومسحوبات الشهرية / Monthly Advances', 
+            value: totals.advances, 
+            icon: CreditCard, 
+            color: 'text-brand-gold', 
+            bg: 'bg-brand-gold/10', 
+            sub: 'إجمالي سحب الموظفين خلال الشهر' 
+          },
+          { 
+            label: 'مصروفات الشركة / Company Expenses', 
+            value: totals.expenses, 
+            icon: BarChart3, 
+            color: 'text-[#f59e0b]', 
+            bg: 'bg-[#f59e0b]/10', 
+            sub: 'مصروفات التشغيل والإدارة' 
+          },
+          { label: 'حالة الفاتورة / Inv. Status', value: currentFinance.status, icon: Receipt, color: 'text-brand-neutral', bg: 'bg-brand-neutral/10', isStatus: true, sub: 'آخر تحديث لدورة التحصيل' }
         ].map((stat, i) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
